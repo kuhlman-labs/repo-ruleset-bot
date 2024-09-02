@@ -1,6 +1,7 @@
 ---
 rulesets:
   - name: "Default Ruleset"
+    enforcement_status: "evaluate"
     bypass_list:
       users: ["octocat"]
       teams: ["engineering"]
