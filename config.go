@@ -13,6 +13,7 @@ type Config struct {
 	Github githubapp.Config `yaml:"github"`
 
 	AppConfig MyApplicationConfig `yaml:"app_configuration"`
+	RuleSet   string              `yaml:"ruleset"`
 }
 
 type HTTPConfig struct {

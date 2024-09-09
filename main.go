@@ -38,6 +38,7 @@ func main() {
 
 	repoRulesetHandler := RulesetHandler{
 		ClientCreator: cc,
+		RuleSet:       config.RuleSet,
 	}
 
 	webhookHandler := githubapp.NewDefaultEventDispatcher(config.Github, &repoRulesetHandler)

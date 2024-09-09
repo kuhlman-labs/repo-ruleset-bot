@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 
 	"github.com/google/go-github/v63/github"
 	"github.com/palantir/go-githubapp/githubapp"
@@ -74,9 +75,9 @@ type StatusCheck struct {
 
 // Workflow represents a workflow.
 type Workflow struct {
-	RepositoryID int    `json:"repository_id"`
-	Path         string `json:"path"`
-	Ref          string `json:"ref"`
+	RepositoryID interface{} `json:"repository_id"`
+	Path         string      `json:"path"`
+	Ref          string      `json:"ref"`
 }
 
 // CodeScanningTool represents a code scanning tool.
@@ -116,6 +117,7 @@ type ConditionChange struct {
 // RulesetHandler handles ruleset events.
 type RulesetHandler struct {
 	githubapp.ClientCreator
+	RuleSet string
 }
 
 // Handles returns the list of event types handled by the RulesetHandler.
@@ -129,7 +131,11 @@ func (h *RulesetHandler) Handle(ctx context.Context, eventType, deliveryID strin
 	case "repository_ruleset":
 		return h.handleRepositoryRuleset(ctx, payload)
 	case "installation":
-		return h.handleInstallation(ctx, payload)
+		var event *github.InstallationEvent
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return errors.Wrap(err, "failed to parse installation event payload")
+		}
+		return h.handleInstallation(ctx, event)
 	default:
 		return nil
 	}
@@ -137,7 +143,7 @@ func (h *RulesetHandler) Handle(ctx context.Context, eventType, deliveryID strin
 
 // handleRepositoryRuleset processes repository ruleset events.
 func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, payload []byte) error {
-	var event RulesetEvent
+	var event *RulesetEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return errors.Wrap(err, "failed to parse repository ruleset event payload")
 	}
@@ -146,11 +152,14 @@ func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, payload []
 
 	switch event.Action {
 	case ActionCreated:
-		return h.handleRulesetCreated(ctx, &event, logger)
+		logger.Info().Msgf("Ruleset created for repository %s", event.Repository.GetName())
+		return h.handleRulesetCreated(ctx, event, logger)
 	case ActionUpdated:
-		return h.handleRulesetUpdated(ctx, &event, logger)
+		logger.Info().Msgf("Ruleset updated for repository %s", event.Repository.GetName())
+		return h.handleRulesetUpdated(ctx, event, logger)
 	case ActionDeleted:
-		return h.handleRulesetDeleted(ctx, &event, logger)
+		logger.Info().Msgf("Ruleset deleted for repository %s", event.Repository.GetName())
+		return h.handleRulesetDeleted(ctx, event, logger)
 	default:
 		return nil
 	}
@@ -158,7 +167,12 @@ func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, payload []
 
 // handleRulesetCreated handles the "created" action for repository ruleset events.
 func (h *RulesetHandler) handleRulesetCreated(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
-	ruleset, err := readRulesetFromFile("rulesets.yml")
+	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
+	if err != nil {
+		return errors.Wrap(err, "failed to create installation client")
+	}
+
+	ruleset, err := readRulesetFromFile(h.RuleSet, client, event.Organization.GetName())
 	if err != nil {
 		return errors.Wrap(err, "failed to read rulesets from file")
 	}
@@ -167,11 +181,6 @@ func (h *RulesetHandler) handleRulesetCreated(ctx context.Context, event *Rulese
 		logger.Info().Msgf("Ruleset does not match the ruleset in the rulesets.yml file")
 
 		logChanges(event, logger)
-
-		client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
-		if err != nil {
-			return errors.Wrap(err, "failed to create installation client")
-		}
 
 		// Get Ruleset ID
 		rulesetID := event.Ruleset.GetID()
@@ -192,7 +201,12 @@ func (h *RulesetHandler) handleRulesetCreated(ctx context.Context, event *Rulese
 func (h *RulesetHandler) handleRulesetUpdated(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
 	logger.Info().Msgf("Ruleset updated for repository %s", event.Repository.GetName())
 
-	ruleset, err := readRulesetFromFile("rulesets.yml")
+	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
+	if err != nil {
+		return errors.Wrap(err, "failed to create installation client")
+	}
+
+	ruleset, err := readRulesetFromFile(h.RuleSet, client, event.Organization.GetName())
 	if err != nil {
 		return errors.Wrap(err, "failed to read rulesets from file")
 	}
@@ -201,11 +215,6 @@ func (h *RulesetHandler) handleRulesetUpdated(ctx context.Context, event *Rulese
 		logger.Info().Msgf("Ruleset does not match the ruleset in the rulesets.yml file")
 
 		logChanges(event, logger)
-
-		client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
-		if err != nil {
-			return errors.Wrap(err, "failed to create installation client")
-		}
 
 		//get the ruleset ID
 		rulesetID := event.Ruleset.GetID()
@@ -226,14 +235,14 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 	logger.Info().Msgf("Ruleset deleted for repository %s", event.Repository.GetName())
 	logger.Info().Msgf("Sender: %s", event.Sender.GetLogin())
 
-	ruleset, err := readRulesetFromFile("rulesets.yml")
-	if err != nil {
-		return errors.Wrap(err, "failed to read rulesets from file")
-	}
-
 	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
 	if err != nil {
 		return errors.Wrap(err, "failed to create installation client")
+	}
+
+	ruleset, err := readRulesetFromFile(h.RuleSet, client, event.Organization.GetName())
+	if err != nil {
+		return errors.Wrap(err, "failed to read rulesets from file")
 	}
 
 	// Get Ruleset ID
@@ -248,25 +257,19 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 }
 
 // handleInstallation processes installation events.
-func (h *RulesetHandler) handleInstallation(ctx context.Context, payload []byte) error {
+func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.InstallationEvent) error {
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
-
-	var event github.InstallationEvent
-	if err := json.Unmarshal(payload, &event); err != nil {
-		logger.Error().Err(err).Msg("Failed to parse installation event payload")
-		return errors.Wrap(err, "failed to parse installation event payload")
-	}
-
-	ruleset, err := readRulesetFromFile("rulesets.yml")
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to read rulesets from file")
-		return errors.Wrap(err, "failed to read rulesets from file")
-	}
 
 	client, err := h.ClientCreator.NewInstallationClient(event.GetInstallation().GetID())
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to create installation client")
 		return errors.Wrap(err, "failed to create installation client")
+	}
+
+	ruleset, err := readRulesetFromFile(h.RuleSet, client, *event.Org.Login)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to read rulesets from file")
+		return errors.Wrap(err, "failed to read rulesets from file")
 	}
 
 	if event.Org == nil || event.Org.Login == nil {
@@ -286,7 +289,7 @@ func (h *RulesetHandler) handleInstallation(ctx context.Context, payload []byte)
 }
 
 // readRulesetFromFile reads the ruleset from a YAML file.
-func readRulesetFromFile(filename string) (*github.Ruleset, error) {
+func readRulesetFromFile(filename string, client *github.Client, orgName string) (*github.Ruleset, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -297,6 +300,31 @@ func readRulesetFromFile(filename string) (*github.Ruleset, error) {
 	decoder := yaml.NewDecoder(file)
 	if err := decoder.Decode(&ruleset); err != nil {
 		return nil, err
+	}
+
+	// Check repository rules for type workflows
+	for _, rule := range ruleset.Rules {
+		if rule.Type == "workflows" {
+			var workflow Workflow
+			// Unmarshal the workflow parameters
+			if err := json.Unmarshal(*rule.Parameters, &workflow); err != nil {
+				return nil, err
+			}
+			// check if Workflow.RepositoryID is a string
+			if reflect.TypeOf(workflow.RepositoryID).Kind() == reflect.String {
+				repoName := workflow.RepositoryID.(string)
+				repoID, err := getRepoID(context.Background(), client, orgName, repoName)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to get repository ID")
+				}
+				workflow.RepositoryID = repoID
+				workflowJSON, err := json.Marshal(workflow)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to marshal workflow")
+				}
+				*rule.Parameters = json.RawMessage(workflowJSON)
+			}
+		}
 	}
 
 	return &ruleset, nil
@@ -316,4 +344,14 @@ func compareRulesets(ruleset1, ruleset2 *github.Ruleset) bool {
 	ruleset2JSON, _ := json.Marshal(ruleset2)
 
 	return string(ruleset1JSON) == string(ruleset2JSON)
+}
+
+// getRepoID returns the repository ID from a given repository name.
+func getRepoID(ctx context.Context, client *github.Client, owner, repo string) (int64, error) {
+	repository, _, err := client.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to get repository")
+	}
+
+	return repository.GetID(), nil
 }
