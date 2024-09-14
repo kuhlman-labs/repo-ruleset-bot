@@ -54,7 +54,7 @@ func main() {
 	logger.Info().Msgf("Starting server on %s...", addr)
 	err = http.ListenAndServe(addr, nil)
 	if err != nil {
-		panic(err)
+		logger.Fatal().Err(err).Msg("Failed to start server")
 	}
 }
 
@@ -396,9 +396,32 @@ func readRulesetFromFile(filename string, client *github.Client, orgName string)
 	}
 
 	for _, rule := range ruleset.Rules {
-		logger.Info().Msgf("Rule type: %s", rule.Type)
 		if rule.Type == "workflows" {
 			err := processWorkflows(rule, client, orgName, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	sourceOrgName := ruleset.Source
+	org, _, err := client.Organizations.Get(context.Background(), orgName)
+	if err != nil {
+		logger.Error().Err(err).Msgf("Failed to get organization %s", orgName)
+		return nil, err
+	}
+
+	orgID := org.GetID()
+
+	for _, bypassActor := range ruleset.BypassActors {
+		actorID := bypassActor.GetActorID()
+		// Skip if bypass actor ID is 1, 2, 3, 4, or 5
+		if actorID == 1 || actorID == 2 || actorID == 3 || actorID == 4 || actorID == 5 {
+			continue
+		}
+
+		if actorID != 0 {
+			err := processBypassActor(bypassActor, client, orgID, orgName, sourceOrgName, logger)
 			if err != nil {
 				return nil, err
 			}
@@ -496,4 +519,92 @@ func processWorkflows(rule *github.RepositoryRule, client *github.Client, orgNam
 
 func isSameRuleset(ruleset *github.Ruleset, event *RulesetEvent) bool {
 	return ruleset.Name == event.Ruleset.Name
+}
+
+func getTeamByID(ctx context.Context, client *github.Client, orgID, teamID int64) (*github.Team, error) {
+	team, _, err := client.Teams.GetTeamByID(ctx, orgID, teamID)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get team")
+	}
+
+	return team, nil
+}
+
+func getTeamByName(ctx context.Context, client *github.Client, orgName, teamName string) (*github.Team, error) {
+	team, _, err := client.Teams.GetTeamBySlug(ctx, orgName, teamName)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get team")
+	}
+
+	return team, nil
+}
+
+//TODO: Add a function to get the CustomRole ID for an Organization
+
+func getCustomRoleForOrg(ctx context.Context, client *github.Client, orgName string) (*github.OrganizationCustomRoles, error) {
+	customRole, _, err := client.Organizations.ListRoles(ctx, orgName)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get custom role")
+	}
+
+	return customRole, nil
+}
+
+// processBypassActor processes the bypass actor in the ruleset. This will loop through the bypass actors in the ruleset and
+// update the actor ID to the new actor ID in the originating organization.
+func processBypassActor(actor *github.BypassActor, client *github.Client, orgID int64, orgName string, sourceOrgName string, logger zerolog.Logger) error {
+	if actor.GetActorType() == "Team" {
+		teamID := actor.GetActorID()
+		team, err := getTeamByID(context.Background(), client, orgID, teamID)
+		if err != nil {
+			logger.Error().Err(err).Msgf("Failed to get team with ID %d", teamID)
+			return err
+		}
+
+		teamName := team.GetSlug()
+
+		newTeam, err := getTeamByName(context.Background(), client, orgName, teamName)
+		if err != nil {
+			logger.Error().Err(err).Msgf("Failed to get team with name %s", teamName)
+			return err
+		}
+
+		newTeamID := newTeam.GetID()
+
+		actor.ActorID = &newTeamID
+
+	} else if actor.GetActorType() == "RepositoryRole" {
+
+		actorID := actor.GetActorID()
+
+		sourceCustomRole, err := getCustomRoleForOrg(context.Background(), client, sourceOrgName)
+		if err != nil {
+			logger.Error().Err(err).Msgf("Failed to get custom role for organization %s", sourceOrgName)
+			return err
+		}
+
+		var roleName string
+
+		for _, role := range sourceCustomRole.CustomRepoRoles {
+			if role.GetID() == actorID {
+				roleName = role.GetName()
+			}
+		}
+
+		customRole, err := getCustomRoleForOrg(context.Background(), client, orgName)
+		if err != nil {
+			logger.Error().Err(err).Msgf("Failed to get custom role for organization %s", orgName)
+			return err
+		}
+
+		for _, role := range customRole.CustomRepoRoles {
+			if role.GetName() == roleName {
+				newRoleID := role.GetID()
+				actor.ActorID = &newRoleID
+			}
+		}
+
+	}
+
+	return nil
 }
