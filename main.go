@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/google/go-github/v63/github"
@@ -121,6 +122,9 @@ type Changes struct {
 	Name struct {
 		From string `json:"from,omitempty"`
 	} `json:"name,omitempty"`
+	Enforcement struct {
+		From string `json:"from,omitempty"`
+	} `json:"enforcement,omitempty"`
 }
 
 // Workflows represents the ruleset workflows parameters.
@@ -203,39 +207,54 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 
 	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
 	if err != nil {
-		return errors.Wrap(err, "failed to create installation client")
+		return errors.Wrap(err, "Failed to create installation client")
 	}
 
 	ruleset, err := h.readRulesetFromFile(h.RuleSet, client, event.Organization.GetLogin())
 	if err != nil {
-		return errors.Wrap(err, "failed to read rulesets from file")
+		return errors.Wrap(err, "Failed to read ruleset from file")
 	}
 
 	rulesetID := event.Ruleset.GetID()
 
 	//check if name of the ruleset has been changed
-	if event.Changes.Name.From != "" && event.Changes.Name.From == ruleset.Name {
+	if event.Changes != nil && event.Changes.Name.From == ruleset.Name {
 		logger.Info().Msgf("Ruleset name has been changed from %s to %s. Reverting name change.", event.Changes.Name.From, event.Ruleset.Name)
 		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
-			return errors.Wrap(err, "Failed to update repository ruleset")
+			return errors.Wrap(err, "Failed to update repository ruleset.")
 		}
-		logger.Info().Msgf("Successfully updated repository ruleset for organization %s", event.Organization.GetLogin())
-	}
-
-	// check if the ruleset is the same as the ruleset in the ruleset.json file
-	if ruleset.Name != event.Ruleset.Name {
-		logger.Info().Msgf("Ruleset is not managed by the bot")
+		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
 		return nil
 	}
 
+	//check if enforcement of the ruleset has been changed
+	if event.Changes != nil && event.Changes.Enforcement.From == ruleset.Enforcement {
+		logger.Info().Msgf("Ruleset enforcement has been changed from %s to %s. Reverting enforcement change.", event.Changes.Enforcement.From, event.Ruleset.Enforcement)
+		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
+			return errors.Wrap(err, "Failed to update repository ruleset.")
+		}
+		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
+		return nil
+	}
+
+	// check if the ruleset is the same as the ruleset in the ruleset file
+	if ruleset.Name != event.Ruleset.Name {
+		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by the bot.", event.Ruleset.Name, event.Organization.GetLogin())
+		return nil
+	}
+
+	// check if the rules and conditions in the ruleset are the same as the ruleset in the ruleset file
 	if !compareRulesets(ruleset, event.Ruleset) {
-		logger.Info().Msgf("Ruleset does not match the ruleset set in the ruleset file, reverting changes")
+		logger.Info().Msgf("Ruleset %s in the organization %s does not match the ruleset set in the ruleset file. Updating ruleset...", event.Ruleset.Name, event.Organization.GetLogin())
 
 		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
 			return errors.Wrap(err, "Failed to update repository ruleset")
 		}
 
-		logger.Info().Msgf("Successfully updated repository ruleset for organization %s", event.Organization.GetLogin())
+		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
+		return nil
+	} else if compareRulesets(ruleset, event.Ruleset) {
+		logger.Info().Msgf("Ruleset %s in the organization %s matches the ruleset set in the ruleset file.", event.Ruleset.Name, event.Organization.GetLogin())
 		return nil
 	}
 
@@ -369,26 +388,45 @@ func (h *RulesetHandler) readRulesetFromFile(filename string, client *github.Cli
 }
 
 // compareRulesets compares two rulesets.
-func compareRulesets(ruleset1, ruleset2 *github.Ruleset) bool {
+func compareRulesets(ruleset, event *github.Ruleset) bool {
 
-	// Remove the ID from the rulesets
-	ruleset1.ID = nil
-	ruleset2.ID = nil
+	rulesetRules := ruleset.Rules
+	eventRules := event.Rules
 
-	// Unmarshal the rulesets to JSON
-	ruleset1JSON, err := json.Marshal(ruleset1)
-	if err != nil {
+	if len(rulesetRules) != len(eventRules) {
 		return false
 	}
 
-	ruleset2JSON, err := json.Marshal(ruleset2)
-	if err != nil {
+	rulesetRuleTypes := make([]string, 0, len(rulesetRules))
+	for _, rule := range rulesetRules {
+		rulesetRuleTypes = append(rulesetRuleTypes, rule.Type)
+	}
+
+	for _, eventRule := range eventRules {
+		if !contains(rulesetRuleTypes, eventRule.Type) {
+			return false
+		}
+	}
+
+	rulesetConditions := ruleset.Conditions
+	eventConditions := event.Conditions
+
+	ok := reflect.DeepEqual(rulesetConditions, eventConditions)
+	if !ok {
 		return false
 	}
 
-	// Compare the rulesets
-	return string(ruleset1JSON) == string(ruleset2JSON)
+	return true
+}
 
+// contains checks if a slice contains a specific element.
+func contains(slice []string, element string) bool {
+	for _, item := range slice {
+		if item == element {
+			return true
+		}
+	}
+	return false
 }
 
 // getRepoID returns the repository ID from a given repository name.
@@ -412,7 +450,6 @@ func getRepoName(ctx context.Context, client *github.Client, repoID int64) (stri
 }
 
 func processWorkflows(rule *github.RepositoryRule, client *github.Client, orgName string, logger zerolog.Logger) error {
-	logger.Info().Msgf("Workflow rule found in ruleset")
 
 	var workflows Workflows
 	err := json.Unmarshal(*rule.Parameters, &workflows)
