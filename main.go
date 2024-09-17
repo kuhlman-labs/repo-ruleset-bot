@@ -463,11 +463,24 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 			}
 		}
 	}
-
+	teamCounter := 0
 	for _, bypassActor := range ruleset.BypassActors {
 		if h.shouldProcessBypassActor(bypassActor) {
-			if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, h.Teams, orgName, logger); err != nil {
-				return errors.Wrap(err, "Failed to process bypass actors")
+			if bypassActor.GetActorType() == "Team" {
+				if teamCounter < len(h.Teams) {
+					team := h.Teams[teamCounter]
+					if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, []string{team}, orgName, logger); err != nil {
+						return errors.Wrap(err, "Failed to process bypass actors")
+					}
+					teamCounter++
+				} else {
+					logger.Warn().Msg("Not enough teams to pair with bypass actors.")
+					break
+				}
+			} else {
+				if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, nil, orgName, logger); err != nil {
+					return errors.Wrap(err, "Failed to process bypass actors")
+				}
 			}
 		}
 	}
@@ -574,15 +587,19 @@ func processBypassActor(ctx context.Context, actor *github.BypassActor, client *
 
 // processTeamActor processes a team actor.
 func processTeamActor(ctx context.Context, actor *github.BypassActor, client *github.Client, teams []string, orgName string, logger zerolog.Logger) error {
-	for _, teamName := range teams {
-		team, err := getTeamByName(ctx, client, orgName, teamName)
-		if err != nil {
-			logger.Error().Err(err).Msgf("Failed to get team with name %s.", teamName)
-			return err
-		}
-		teamID := team.GetID()
-		actor.ActorID = &teamID
+	if len(teams) == 0 {
+		return errors.New("No teams provided")
 	}
+
+	teamName := teams[0] // Pair the first team with the bypass actor
+	team, err := getTeamByName(ctx, client, orgName, teamName)
+	if err != nil {
+		logger.Error().Err(err).Msgf("Failed to get team with name %s.", teamName)
+		return err
+	}
+
+	teamID := team.GetID()
+	actor.ActorID = &teamID
 	return nil
 }
 
