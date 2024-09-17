@@ -44,6 +44,7 @@ func main() {
 
 	repoRulesetHandler := RulesetHandler{
 		ClientCreator:   cc,
+		Logger:          logger,
 		RuleSet:         config.RuleSet,
 		CustomRepoRoles: config.CustomRepoRoles,
 		Teams:           config.Teams,
@@ -57,7 +58,7 @@ func main() {
 	logger.Info().Msgf("Starting server on %s...", addr)
 	err = http.ListenAndServe(addr, nil)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to start server")
+		logger.Fatal().Err(err).Msg("Failed to start server.")
 	}
 }
 
@@ -75,34 +76,80 @@ type HTTPConfig struct {
 	Port    int    `yaml:"port"`
 }
 
+// ReadConfig reads and parses the configuration file.
 func ReadConfig(path string) (*Config, error) {
-	var c Config
+	var config Config
 
+	// Read the file
 	bytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed reading server config file: %s", path)
+		return nil, errors.Wrapf(err, "Failed to read configuration file: %s", path)
 	}
 
-	if err := yaml.UnmarshalStrict(bytes, &c); err != nil {
-		return nil, errors.Wrap(err, "failed parsing configuration file")
+	// Unmarshal the YAML content
+	if err := yaml.UnmarshalStrict(bytes, &config); err != nil {
+		return nil, errors.Wrap(err, "Failed to parse configuration file")
 	}
 
-	return &c, nil
+	// Validate the configuration
+	if err := validateConfig(&config); err != nil {
+		return nil, errors.Wrap(err, "Invalid configuration")
+	}
+
+	return &config, nil
+}
+
+// validateConfig validates the configuration fields.
+func validateConfig(config *Config) error {
+	requiredFields := map[string]interface{}{
+		"Server Address":            config.Server.Address,
+		"Server Port":               config.Server.Port,
+		"Ruleset":                   config.RuleSet,
+		"GitHub App ID":             config.Github.App.IntegrationID,
+		"GitHub App private key":    config.Github.App.PrivateKey,
+		"GitHub App webhook secret": config.Github.App.WebhookSecret,
+		"GitHub v3 API URL":         config.Github.V3APIURL,
+	}
+
+	for field, value := range requiredFields {
+		if isEmpty(value) {
+			return errors.New(fmt.Sprintf("%s field is required to be set in the config.yml file.", field))
+		}
+	}
+
+	return nil
+}
+
+// isEmpty checks if a value is considered empty.
+func isEmpty(value interface{}) bool {
+	switch v := value.(type) {
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case []string:
+		return len(v) == 0
+	default:
+		return value == nil
+	}
 }
 
 // RulesetHandler handles ruleset events.
 type RulesetHandler struct {
 	githubapp.ClientCreator
+	zerolog.Logger
 	RuleSet         string
 	CustomRepoRoles []string
 	Teams           []string
 }
 
-// Constants for action types
+// Constants for action and event types
 const (
-	ActionCreated = "created"
-	ActionEdited  = "edited"
-	ActionDeleted = "deleted"
+	ActionCreated              = "created"
+	ActionEdited               = "edited"
+	ActionDeleted              = "deleted"
+	EventTypeRepositoryRuleset = "repository_ruleset"
+	EventTypeInstallation      = "installation"
 )
 
 // RulesetEvent represents a GitHub ruleset event.
@@ -147,39 +194,45 @@ func (h *RulesetHandler) Handles() []string {
 // Handle processes the event payload based on the event type.
 func (h *RulesetHandler) Handle(ctx context.Context, eventType, deliveryID string, payload []byte) error {
 
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	logger := h.Logger
 
 	switch eventType {
-	case "repository_ruleset":
-
-		var event *RulesetEvent
-		if err := json.Unmarshal(payload, &event); err != nil {
-			return errors.Wrap(err, "failed to parse repository ruleset event payload")
-		}
-
-		logger.Info().Msgf("Repository ruleset event received: %s", event.Action)
-
-		return h.handleRepositoryRuleset(ctx, event)
-	case "installation":
-
-		var event *github.InstallationEvent
-		if err := json.Unmarshal(payload, &event); err != nil {
-			return errors.Wrap(err, "failed to parse installation event payload")
-		}
-
-		logger.Info().Msgf("Installation event received: %s", event.GetAction())
-
-		return h.handleInstallation(ctx, event)
+	case EventTypeRepositoryRuleset:
+		return h.handleRepositoryRulesetEvent(ctx, payload, logger)
+	case EventTypeInstallation:
+		return h.handleInstallationEvent(ctx, payload, logger)
 	default:
+		logger.Warn().Msgf("Unhandled event type: %s.", eventType)
 		return nil
 	}
 }
 
+// handleRepositoryRulesetEvent handles repository ruleset events.
+func (h *RulesetHandler) handleRepositoryRulesetEvent(ctx context.Context, payload []byte, logger zerolog.Logger) error {
+	var event *RulesetEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		logger.Error().Err(err).Msg("Failed to parse repository ruleset event payload.")
+		return errors.Wrap(err, "Failed to parse repository ruleset event payload")
+	}
+
+	logger.Info().Msgf("Repository ruleset event received for the organization %s: %s.", event.Organization.GetLogin(), event.Action)
+	return h.handleRepositoryRuleset(ctx, event, logger)
+}
+
+// handleInstallationEvent handles installation events.
+func (h *RulesetHandler) handleInstallationEvent(ctx context.Context, payload []byte, logger zerolog.Logger) error {
+	var event *github.InstallationEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		logger.Error().Err(err).Msg("Failed to parse installation event payload.")
+		return errors.Wrap(err, "Failed to parse installation event payload")
+	}
+
+	logger.Info().Msgf("Installation event received for the organization %s: %s.", event.Installation.Account.GetLogin(), event.GetAction())
+	return h.handleInstallation(ctx, event, logger)
+}
+
 // handleRepositoryRuleset processes organization ruleset events.
-func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, event *RulesetEvent) error {
-
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
-
+func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
 	switch event.Action {
 	case ActionCreated:
 		return h.handleRulesetCreated(event, logger)
@@ -188,252 +241,249 @@ func (h *RulesetHandler) handleRepositoryRuleset(ctx context.Context, event *Rul
 	case ActionDeleted:
 		return h.handleRulesetDeleted(ctx, event, logger)
 	default:
+		logger.Warn().Msgf("Unhandled action type: %s.", event.Action)
 		return nil
 	}
 }
 
 // handleRulesetCreated handles the "created" action for repository ruleset events.
 func (h *RulesetHandler) handleRulesetCreated(event *RulesetEvent, logger zerolog.Logger) error {
-
-	logger.Info().Msgf("Ruleset has been created in the organization %s by %s", event.Organization.GetLogin(), event.Sender.GetLogin())
-
+	logger.Info().Msgf("Ruleset has been created in the organization %s by %s.", event.Organization.GetLogin(), event.Sender.GetLogin())
 	return nil
 }
 
 // handleRulesetEditedhandles the "edited" action for repository ruleset events.
 func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
+	logger.Info().Msgf("Ruleset %s has been edited in the organization %s by %s.", event.Ruleset.Name, event.Organization.GetLogin(), event.Sender.GetLogin())
 
-	logger.Info().Msgf("Ruleset %s has been edited in the organization %s by %s", event.Ruleset.Name, event.Organization.GetLogin(), event.Sender.GetLogin())
+	orgName := event.Organization.GetLogin()
 
 	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
 	if err != nil {
 		return errors.Wrap(err, "Failed to create installation client")
 	}
 
-	ruleset, err := h.readRulesetFromFile(h.RuleSet, client, event.Organization.GetLogin())
+	ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
 	if err != nil {
 		return errors.Wrap(err, "Failed to read ruleset from file")
 	}
 
 	rulesetID := event.Ruleset.GetID()
 
-	//check if name of the ruleset has been changed
-	if event.Changes != nil && event.Changes.Name.From == ruleset.Name {
-		logger.Info().Msgf("Ruleset name has been changed from %s to %s. Reverting name change.", event.Changes.Name.From, event.Ruleset.Name)
-		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
-			return errors.Wrap(err, "Failed to update repository ruleset.")
-		}
-		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
+	// Check if the ruleset needs to be updated
+	if h.isNameChanged(event, ruleset, logger) || h.isEnforcementChanged(event, ruleset, logger) || !h.compareRulesets(ruleset, event.Ruleset, logger) {
+		logger.Info().Msgf("Updating ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
+		h.editRuleset(ctx, client, orgName, rulesetID, ruleset, logger)
 		return nil
 	}
 
-	//check if enforcement of the ruleset has been changed
-	if event.Changes != nil && event.Changes.Enforcement.From == ruleset.Enforcement {
-		logger.Info().Msgf("Ruleset enforcement has been changed from %s to %s. Reverting enforcement change.", event.Changes.Enforcement.From, event.Ruleset.Enforcement)
-		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
-			return errors.Wrap(err, "Failed to update repository ruleset.")
-		}
-		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
+	if !h.isManagedRuleset(event, ruleset, logger) {
 		return nil
 	}
 
-	// check if the ruleset is the same as the ruleset in the ruleset file
-	if ruleset.Name != event.Ruleset.Name {
-		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by the bot.", event.Ruleset.Name, event.Organization.GetLogin())
-		return nil
-	}
-
-	// check if the rules and conditions in the ruleset are the same as the ruleset in the ruleset file
-	if !compareRulesets(ruleset, event.Ruleset) {
-		logger.Info().Msgf("Ruleset %s in the organization %s does not match the ruleset set in the ruleset file. Updating ruleset...", event.Ruleset.Name, event.Organization.GetLogin())
-
-		if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, event.Organization.GetLogin(), rulesetID, ruleset); err != nil {
-			return errors.Wrap(err, "Failed to update repository ruleset")
-		}
-
-		logger.Info().Msgf("Successfully updated ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
-		return nil
-	} else if compareRulesets(ruleset, event.Ruleset) {
-		logger.Info().Msgf("Ruleset %s in the organization %s matches the ruleset set in the ruleset file.", event.Ruleset.Name, event.Organization.GetLogin())
-		return nil
-	}
-
+	logger.Info().Msgf("Ruleset %s in the organization %s matches the ruleset set in the ruleset file.", event.Ruleset.Name, event.Organization.GetLogin())
 	return nil
 }
 
-// handleRulesetDeleted handles the "deleted" action for repository ruleset events.
-func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
-
-	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
-	if err != nil {
-		return errors.Wrap(err, "failed to create installation client")
-	}
-
-	orgName := event.Organization.GetLogin()
-
-	ruleset, err := h.readRulesetFromFile(h.RuleSet, client, orgName)
-	if err != nil {
-		return errors.Wrap(err, "failed to read rulesets from file")
-	}
-
-	// check if the ruleset is the same as the ruleset in the ruleset.json file
-	if ruleset.Name != event.Ruleset.Name {
-		logger.Info().Msgf("Ruleset %s has been deleted in the organization %s by %s", event.Ruleset.Name, orgName, event.Sender.GetLogin())
-		logger.Info().Msgf("Ruleset is not managed by the bot")
-		return nil
-	}
-
-	logger.Info().Msgf("Ruleset %s has been deleted in the organization %s by %s", event.Ruleset.Name, orgName, event.Sender.GetLogin())
-	logger.Info().Msgf("Redeploying ruleset %s Ruleset Is Managed By The Bot", event.Ruleset.Name)
-
-	if _, _, err := client.Organizations.CreateOrganizationRuleset(ctx, orgName, ruleset); err != nil {
-		return errors.Wrap(err, "Failed to redeploy repository ruleset")
-	}
-
-	logger.Info().Msgf("Successfully redeployed repository ruleset for organization %s", orgName)
-	return nil
-}
-
-// handleInstallation processes installation events.
-func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.InstallationEvent) error {
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
-
-	// Only process installation events for new installations
-	if event.GetAction() != "created" {
-		return nil
-	}
-
-	installation := event.GetInstallation()
-	if installation == nil {
-		err := errors.New("installation is nil")
-		logger.Error().Err(err).Msg("Installation is nil")
-		return err
-	}
-
-	logger.Info().Msgf("Installation created for installation ID %d", event.GetInstallation().GetID())
-
-	client, err := h.ClientCreator.NewInstallationClient(installation.GetID())
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to create installation client")
-		return errors.Wrap(err, "failed to create installation client")
-	}
-
-	orgName := event.Installation.Account.GetLogin()
-
-	ruleset, err := h.readRulesetFromFile(h.RuleSet, client, orgName)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to read rulesets from file")
-		return errors.Wrap(err, "failed to read rulesets from file")
-	}
-
-	orgRule, _, err := client.Organizations.CreateOrganizationRuleset(ctx, orgName, ruleset)
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to create organization ruleset for org %s", orgName)
-		return errors.Wrap(err, "failed to create organization ruleset")
-	}
-
-	logger.Info().Msgf("Successfully created organization ruleset for org %s with ID %d", orgName, orgRule.GetID())
-
-	return nil
-}
-
-// readRulesetFromFile reads the ruleset from a JSON file.
-func (h *RulesetHandler) readRulesetFromFile(filename string, client *github.Client, orgName string) (*github.Ruleset, error) {
-	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
-
-	file, err := os.Open(filename)
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to open ruleset file %s", filename)
-		return nil, err
-	}
-	defer file.Close()
-
-	jsonData, err := os.ReadFile(filename)
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to read ruleset file %s", filename)
-		return nil, err
-	}
-
-	var ruleset *github.Ruleset
-	err = json.Unmarshal(jsonData, &ruleset)
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to unmarshal ruleset file %s", filename)
-		return nil, err
-	}
-
-	for _, rule := range ruleset.Rules {
-		if rule.Type == "workflows" {
-			err := processWorkflows(rule, client, orgName, logger)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	for _, bypassActor := range ruleset.BypassActors {
-		actorID := bypassActor.GetActorID()
-		if actorID == 1 || actorID == 2 || actorID == 3 || actorID == 4 || actorID == 5 {
-			continue
-		}
-
-		if actorID != 0 {
-			err := processBypassActor(bypassActor, client, h.CustomRepoRoles, h.Teams, orgName, logger)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return ruleset, nil
-}
-
-// compareRulesets compares two rulesets.
-func compareRulesets(ruleset, event *github.Ruleset) bool {
-
-	rulesetRules := ruleset.Rules
-	eventRules := event.Rules
-
-	if len(rulesetRules) != len(eventRules) {
+// compareRulesets compares two rulesets, returning true if they match.
+func (h *RulesetHandler) compareRulesets(ruleset, event *github.Ruleset, logger zerolog.Logger) bool {
+	if ruleset == nil || event == nil {
 		return false
 	}
 
-	rulesetRuleTypes := make([]string, 0, len(rulesetRules))
-	for _, rule := range rulesetRules {
-		rulesetRuleTypes = append(rulesetRuleTypes, rule.Type)
+	if !h.compareRules(ruleset.Rules, event.Rules, logger) {
+		return false
 	}
 
-	for _, eventRule := range eventRules {
-		if !contains(rulesetRuleTypes, eventRule.Type) {
-			return false
-		}
-	}
-
-	rulesetConditions := ruleset.Conditions
-	eventConditions := event.Conditions
-
-	ok := reflect.DeepEqual(rulesetConditions, eventConditions)
-	if !ok {
+	if !h.compareConditions(ruleset.Conditions, event.Conditions, logger) {
 		return false
 	}
 
 	return true
 }
 
-// contains checks if a slice contains a specific element.
-func contains(slice []string, element string) bool {
-	for _, item := range slice {
-		if item == element {
-			return true
+// compareRules compares the rules of two rulesets, returning true if they match.
+func (h *RulesetHandler) compareRules(rulesetRules, eventRules []*github.RepositoryRule, logger zerolog.Logger) bool {
+	if len(rulesetRules) != len(eventRules) {
+		logger.Info().Msgf("Number of rules in the ruleset file does not match the number of rules in the event.")
+		return false
+	}
+
+	rulesetRuleTypes := make(map[string]struct{}, len(rulesetRules))
+	for _, rule := range rulesetRules {
+		rulesetRuleTypes[rule.Type] = struct{}{}
+	}
+
+	for _, eventRule := range eventRules {
+		if _, exists := rulesetRuleTypes[eventRule.Type]; !exists {
+			logger.Info().Msgf("Rule type %s in the ruleset file was not found in the event.", eventRule.Type)
+			return false
 		}
 	}
+
+	return true
+}
+
+// compareConditions compares the conditions of two rulesets, returning true if they match.
+func (h *RulesetHandler) compareConditions(rulesetConditions, eventConditions *github.RulesetConditions, logger zerolog.Logger) bool {
+
+	if !reflect.DeepEqual(rulesetConditions, eventConditions) {
+		logger.Info().Msgf("Conditions in the ruleset file do not match the conditions in the event.")
+		return false
+	}
+	return true
+}
+
+func (h *RulesetHandler) isNameChanged(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
+	if event.Changes != nil && event.Changes.Name.From == ruleset.Name {
+		logger.Info().Msgf("Ruleset name has been changed from %s to %s. Reverting name change.", event.Changes.Name.From, event.Ruleset.Name)
+		return true
+	}
 	return false
+}
+
+func (h *RulesetHandler) isEnforcementChanged(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
+	if event.Changes != nil && event.Changes.Enforcement.From == ruleset.Enforcement {
+		logger.Info().Msgf("Ruleset enforcement has been changed from %s to %s. Reverting enforcement change.", event.Changes.Enforcement.From, event.Ruleset.Enforcement)
+		return true
+	}
+	return false
+}
+
+// handleRulesetDeleted handles the "deleted" action for repository ruleset events.
+func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
+	orgName := event.Organization.GetLogin()
+	logger.Info().Msgf("Ruleset %s has been deleted in the organization %s by %s.", event.Ruleset.Name, orgName, event.Sender.GetLogin())
+
+	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
+	if err != nil {
+		return errors.Wrap(err, "Failed to create installation client")
+	}
+
+	ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
+	if err != nil {
+		return errors.Wrap(err, "Failed to read rulesets from file")
+	}
+
+	if !h.isManagedRuleset(event, ruleset, logger) {
+		return nil
+	}
+
+	logger.Info().Msgf("Recreating ruleset %s in organization %s.", event.Ruleset.Name, orgName)
+
+	if err := h.createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *RulesetHandler) isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
+	if ruleset.Name != event.Ruleset.Name {
+		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by the bot.", event.Ruleset.Name, event.Organization.GetLogin())
+		return false
+	}
+	return true
+}
+
+func (h *RulesetHandler) createRuleset(ctx context.Context, client *github.Client, orgName string, ruleset *github.Ruleset, logger zerolog.Logger) error {
+	if _, _, err := client.Organizations.CreateOrganizationRuleset(ctx, orgName, ruleset); err != nil {
+		return errors.Wrap(err, "Failed to deploy repository ruleset")
+	}
+	logger.Info().Msgf("Successfully created the %s ruleset for organization %s.", ruleset.Name, orgName)
+	return nil
+}
+
+func (h *RulesetHandler) editRuleset(ctx context.Context, client *github.Client, orgName string, rulesetID int64, ruleset *github.Ruleset, logger zerolog.Logger) error {
+	if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, orgName, rulesetID, ruleset); err != nil {
+		return errors.Wrap(err, "Failed to update repository ruleset")
+	}
+	logger.Info().Msgf("Successfully updated the %s ruleset for organization %s.", ruleset.Name, orgName)
+	return nil
+}
+
+// handleInstallation processes installation events.
+func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.InstallationEvent, logger zerolog.Logger) error {
+
+	installationID := event.GetInstallation().GetID()
+	orgName := event.Installation.Account.GetLogin()
+	action := event.GetAction()
+	appName := event.GetInstallation().GetAppSlug()
+
+	logger.Info().Msgf("Application %s installed in the organization %s.", appName, orgName)
+
+	if action != "created" {
+		return nil
+	}
+
+	client, err := h.ClientCreator.NewInstallationClient(installationID)
+	if err != nil {
+		return errors.Wrap(err, "Failed to create installation client")
+	}
+
+	ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
+	if err != nil {
+		return errors.Wrap(err, "Failed to read rulesets from file")
+	}
+
+	h.createRuleset(ctx, client, orgName, ruleset, logger)
+
+	return nil
+}
+
+// readRulesetFromFile reads the ruleset from a JSON file.
+func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
+
+	logger.Info().Msgf("Processing ruleset file %s...", filename)
+
+	jsonData, err := os.ReadFile(filename)
+	if err != nil {
+		logger.Error().Err(err).Msgf("Failed to read ruleset file %s.", filename)
+		return nil, errors.Wrap(err, "Failed to read ruleset file")
+	}
+
+	var ruleset *github.Ruleset
+	if err := json.Unmarshal(jsonData, &ruleset); err != nil {
+		logger.Error().Err(err).Msgf("Failed to unmarshal ruleset file %s.", filename)
+		return nil, errors.Wrap(err, "Failed to unmarshal ruleset file")
+	}
+
+	if err := h.processRuleset(ctx, ruleset, client, orgName, logger); err != nil {
+		return nil, err
+	}
+
+	return ruleset, nil
+}
+
+func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Ruleset, client *github.Client, orgName string, logger zerolog.Logger) error {
+	for _, rule := range ruleset.Rules {
+		if rule.Type == "workflows" {
+			if err := processWorkflows(ctx, rule, client, orgName, logger); err != nil {
+				return errors.Wrap(err, "Failed to process workflows.")
+			}
+		}
+	}
+
+	for _, bypassActor := range ruleset.BypassActors {
+		if h.shouldProcessBypassActor(bypassActor) {
+			if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, h.Teams, orgName, logger); err != nil {
+				return errors.Wrap(err, "Failed to process bypass actors")
+			}
+		}
+	}
+	return nil
+}
+
+func (h *RulesetHandler) shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
+	actorID := bypassActor.GetActorID()
+	return actorID != 0 && actorID > 5
 }
 
 // getRepoID returns the repository ID from a given repository name.
 func getRepoID(ctx context.Context, client *github.Client, owner, repo string) (int64, error) {
 	repository, _, err := client.Repositories.Get(ctx, owner, repo)
 	if err != nil {
-		return 0, errors.Wrap(err, "failed to get repository")
+		return 0, errors.Wrap(err, "Failed to get repository")
 	}
 
 	return repository.GetID(), nil
@@ -443,107 +493,118 @@ func getRepoID(ctx context.Context, client *github.Client, owner, repo string) (
 func getRepoName(ctx context.Context, client *github.Client, repoID int64) (string, error) {
 	repository, _, err := client.Repositories.GetByID(ctx, repoID)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to get repository")
+		return "", errors.Wrap(err, "Failed to get repository")
 	}
 
 	return repository.GetName(), nil
 }
 
-func processWorkflows(rule *github.RepositoryRule, client *github.Client, orgName string, logger zerolog.Logger) error {
-
+// processWorkflows processes the workflows in a repository rule.
+func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *github.Client, orgName string, logger zerolog.Logger) error {
 	var workflows Workflows
-	err := json.Unmarshal(*rule.Parameters, &workflows)
-	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to unmarshal workflow parameters")
-		return err
+	if err := json.Unmarshal(*rule.Parameters, &workflows); err != nil {
+		logger.Error().Err(err).Msg("Failed to unmarshal workflow parameters.")
+		return errors.Wrap(err, "Failed to unmarshal workflow parameters")
 	}
 
 	for i, workflow := range workflows.Workflows {
-
-		// Get the repository name from the repository ID
-		repoName, err := getRepoName(context.Background(), client, workflow.RepositoryID)
-		if err != nil {
-			logger.Error().Err(err).Msgf("Failed to get repository name")
+		if err := updateWorkflowRepoID(ctx, &workflow, client, orgName, logger); err != nil {
 			return err
 		}
-
-		// Look up the repository ID for repo in originating organization
-		newRepoID, err := getRepoID(context.Background(), client, orgName, repoName)
-		if err != nil {
-			logger.Error().Err(err).Msgf("Failed to get repository ID")
-			return err
-		}
-
-		// Update the repository ID in the workflow
-		workflows.Workflows[i].RepositoryID = newRepoID
+		workflows.Workflows[i] = workflow
 	}
 
-	// Marshal the updated workflows struct back to JSON
 	updatedWorkflowsJSON, err := json.Marshal(workflows)
 	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to marshal updated workflows")
-		return err
+		logger.Error().Err(err).Msg("Failed to marshal updated workflows.")
+		return errors.Wrap(err, "Failed to marshal updated workflows")
 	}
 
-	// Update the rule parameters with the new JSON data
 	*rule.Parameters = updatedWorkflowsJSON
-
 	return nil
 }
 
+// updateWorkflowRepoID updates the repository ID in a workflow.
+func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, orgName string, logger zerolog.Logger) error {
+	repoName, err := getRepoName(ctx, client, workflow.RepositoryID)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get repository name.")
+		return errors.Wrap(err, "Failed to get repository name")
+	}
+
+	newRepoID, err := getRepoID(ctx, client, orgName, repoName)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get repository ID.")
+		return errors.Wrap(err, "Failed to get repository ID")
+	}
+
+	workflow.RepositoryID = newRepoID
+	return nil
+}
+
+// getTeamByName returns the team by its name.
 func getTeamByName(ctx context.Context, client *github.Client, orgName, teamName string) (*github.Team, error) {
 	team, _, err := client.Teams.GetTeamBySlug(ctx, orgName, teamName)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get team")
+		return nil, errors.Wrap(err, "Failed to get team")
 	}
-
 	return team, nil
 }
 
+// getCustomRepoRolesForOrg returns the custom repository roles for an organization.
 func getCustomRepoRolesForOrg(ctx context.Context, client *github.Client, orgName string) (*github.OrganizationCustomRepoRoles, error) {
 	customRepoRoles, _, err := client.Organizations.ListCustomRepoRoles(ctx, orgName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get custom repository roles for organization: %s", orgName)
 	}
-
 	return customRepoRoles, nil
 }
 
-// processBypassActor processes the bypass actor in the ruleset. This will loop through the bypass actors in the ruleset and
-// update the actor ID to the new actor ID in the originating organization.
-func processBypassActor(actor *github.BypassActor, client *github.Client, repoRoles, teams []string, orgName string, logger zerolog.Logger) error {
-	if actor.GetActorType() == "Team" {
-		for _, team := range teams {
-			newTeam, err := getTeamByName(context.Background(), client, orgName, team)
-			if err != nil {
-				logger.Error().Err(err).Msgf("Failed to get team with name %s", team)
-				return err
-			}
+// processBypassActor processes a bypass actor.
+func processBypassActor(ctx context.Context, actor *github.BypassActor, client *github.Client, repoRoles, teams []string, orgName string, logger zerolog.Logger) error {
+	switch actor.GetActorType() {
+	case "Team":
+		return processTeamActor(ctx, actor, client, teams, orgName, logger)
+	case "RepositoryRole":
+		return processRepoRoleActor(ctx, actor, client, repoRoles, orgName, logger)
+	default:
+		return nil
+	}
+}
 
-			newRoleID := newTeam.GetID()
-
-			actor.ActorID = &newRoleID
+// processTeamActor processes a team actor.
+func processTeamActor(ctx context.Context, actor *github.BypassActor, client *github.Client, teams []string, orgName string, logger zerolog.Logger) error {
+	for _, teamName := range teams {
+		team, err := getTeamByName(ctx, client, orgName, teamName)
+		if err != nil {
+			logger.Error().Err(err).Msgf("Failed to get team with name %s.", teamName)
+			return err
 		}
-	} else if actor.GetActorType() == "RepositoryRole" {
+		teamID := team.GetID()
+		actor.ActorID = &teamID
+	}
+	return nil
+}
 
-		for _, repoRole := range repoRoles {
-
-			customRepoRoles, err := getCustomRepoRolesForOrg(context.Background(), client, orgName)
-			if err != nil {
-				logger.Error().Err(err).Msgf("Failed to get custom repo role for organization: %s", orgName)
-				return err
-			}
-
-			var newRoleID int64
-
-			for _, role := range customRepoRoles.CustomRepoRoles {
-				if role.GetName() == repoRole {
-					newRoleID = role.GetID()
-				}
-			}
-			actor.ActorID = &newRoleID
-		}
+// processRepoRoleActor processes a repository role actor.
+func processRepoRoleActor(ctx context.Context, actor *github.BypassActor, client *github.Client, repoRoles []string, orgName string, logger zerolog.Logger) error {
+	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, client, orgName)
+	if err != nil {
+		logger.Error().Err(err).Msgf("Failed to get custom repo roles for organization: %s.", orgName)
+		return err
 	}
 
+	roleIDMap := make(map[string]int64)
+	for _, role := range customRepoRoles.CustomRepoRoles {
+		roleIDMap[role.GetName()] = role.GetID()
+	}
+
+	for _, repoRole := range repoRoles {
+		if roleID, exists := roleIDMap[repoRole]; exists {
+			actor.ActorID = &roleID
+		} else {
+			logger.Warn().Msgf("Repository role %s not found in organization %s.", repoRole, orgName)
+		}
+	}
 	return nil
 }
