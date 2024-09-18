@@ -114,6 +114,14 @@ github:
 
 Once the App is set up and running, it will listen for the ruleset events and deploy the ruleset configured when the app gets installed to an Organization. If someone modifies or deletes the ruleset from the GitHub UI, the app will revert the changes to the ruleset.
 
+- **Deploy Ruleset**:
+  - When the app is installed to an Organization, it will deploy the defined ruleset to the Organization.
+  - If the Ruleset gets deleted, the app will redeploy the ruleset to the Organization.
+- **Revert Changes**:
+  - If someone modifies the name, enforcement level, or rules of the ruleset, the app will revert the changes.
+- **Not Currently Supported**:
+  - If someone modifies bypass actors, the app will not revert the changes since the bypass actors are not delivered in the `edited` payload currently, however this will change in the future.
+
 ## Contributing
 
 Feel free to open issues or submit pull requests if you find any bugs or have suggestions for improvements.
