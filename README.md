@@ -110,9 +110,9 @@ github:
 
    - The server will start and listen for GitHub events on the specified address and port. The default path it will listen on is `/api/github/hook`.
 
-## Example Usage
+## Features
 
-Once the server is running, it will listen for the configured GitHub events and manage the repository rulesets according to the rules defined in the ruleset file you have specified in the config. The bot will log its actions and any errors encountered during processing.
+Once the App is set up and running, it will listen for the ruleset events and deploy the ruleset configured when the app gets installed to an Organization. If someone modifies or deletes the ruleset from the GitHub UI, the app will revert the changes to the ruleset.
 
 ## Contributing
 
