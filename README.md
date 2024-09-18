@@ -1,7 +1,7 @@
 # Repo Ruleset Bot
 
 ## Purpose
-The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets are consistent with the predefined ruleset configuration. The bot can handle events such as the creation, editing, and deletion of repository rulesets, and it can also manage custom repository roles and teams.
+The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets are consistent with the predefined ruleset configuration. The bot will enforce the ruleset configuration by reverting any changes made to the ruleset, ensuring that the ruleset is always in the desired state.
 
 ## How to Create the GitHub App in GitHub
 
