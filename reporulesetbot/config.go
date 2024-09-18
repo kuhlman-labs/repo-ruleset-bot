@@ -1,14 +1,15 @@
 package reporulesetbot
 
 import (
-    "os"
-    "fmt"
+	"fmt"
+	"os"
 
-    "github.com/palantir/go-githubapp/githubapp"
-    "github.com/pkg/errors"
-    "gopkg.in/yaml.v2"
+	"github.com/palantir/go-githubapp/githubapp"
+	"github.com/pkg/errors"
+	"gopkg.in/yaml.v2"
 )
 
+// Config represents the configuration of the application.
 type Config struct {
 	Server HTTPConfig       `yaml:"server"`
 	Github githubapp.Config `yaml:"github"`
@@ -18,6 +19,7 @@ type Config struct {
 	Teams           []string `yaml:"teams"`
 }
 
+// HTTPConfig represents the configuration of the HTTP server.
 type HTTPConfig struct {
 	Address string `yaml:"address"`
 	Port    int    `yaml:"port"`

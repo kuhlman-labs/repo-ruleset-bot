@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"reflect"
 
 	"github.com/google/go-github/v63/github"
 	"github.com/pkg/errors"
@@ -35,7 +34,6 @@ type Workflow struct {
 
 // readRulesetFromFile reads the ruleset from a JSON file.
 func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
-
 	logger.Info().Msgf("Processing ruleset file %s...", filename)
 
 	jsonData, err := os.ReadFile(filename)
@@ -57,6 +55,7 @@ func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Contex
 	return ruleset, nil
 }
 
+// processRuleset processes the ruleset.
 func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Ruleset, client *github.Client, orgName string, logger zerolog.Logger) error {
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "workflows" {
@@ -65,31 +64,44 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 			}
 		}
 	}
+
 	teamCounter := 0
+	customRepoRoleCounter := 0
 	for _, bypassActor := range ruleset.BypassActors {
-		if h.shouldProcessBypassActor(bypassActor) {
-			if bypassActor.GetActorType() == "Team" {
+		if shouldProcessBypassActor(bypassActor) {
+			switch bypassActor.GetActorType() {
+			case "Team":
 				if teamCounter < len(h.Teams) {
 					team := h.Teams[teamCounter]
-					if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, []string{team}, orgName, logger); err != nil {
-						return errors.Wrap(err, "Failed to process bypass actors")
+					if err := processTeamActor(ctx, bypassActor, client, []string{team}, orgName, logger); err != nil {
+						return errors.Wrap(err, "Failed to process team bypass actors")
 					}
 					teamCounter++
 				} else {
 					logger.Warn().Msg("Not enough teams to pair with bypass actors.")
 					break
 				}
-			} else {
-				if err := processBypassActor(ctx, bypassActor, client, h.CustomRepoRoles, nil, orgName, logger); err != nil {
-					return errors.Wrap(err, "Failed to process bypass actors")
+			case "RepositoryRole":
+				if customRepoRoleCounter < len(h.CustomRepoRoles) {
+					repoRole := h.CustomRepoRoles[customRepoRoleCounter]
+					if err := processRepoRoleActor(ctx, bypassActor, client, []string{repoRole}, orgName, logger); err != nil {
+						return errors.Wrap(err, "Failed to process repository role bypass actors")
+					}
+					customRepoRoleCounter++
+				} else {
+					logger.Warn().Msg("Not enough custom repository roles to pair with bypass actors.")
+					break
 				}
+			default:
+				logger.Warn().Msgf("Unhandled actor type: %s", bypassActor.GetActorType())
 			}
 		}
 	}
 	return nil
 }
 
-func (h *RulesetHandler) shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
+// shouldProcessBypassActor returns true if the bypass actor should be processed.
+func shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
 	actorID := bypassActor.GetActorID()
 	return actorID != 0 && actorID > 5
 }
@@ -137,18 +149,6 @@ func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *githu
 	return nil
 }
 
-// processBypassActor processes a bypass actor.
-func processBypassActor(ctx context.Context, actor *github.BypassActor, client *github.Client, repoRoles, teams []string, orgName string, logger zerolog.Logger) error {
-	switch actor.GetActorType() {
-	case "Team":
-		return processTeamActor(ctx, actor, client, teams, orgName, logger)
-	case "RepositoryRole":
-		return processRepoRoleActor(ctx, actor, client, repoRoles, orgName, logger)
-	default:
-		return nil
-	}
-}
-
 // processTeamActor processes a team actor.
 func processTeamActor(ctx context.Context, actor *github.BypassActor, client *github.Client, teams []string, orgName string, logger zerolog.Logger) error {
 	if len(teams) == 0 {
@@ -169,6 +169,10 @@ func processTeamActor(ctx context.Context, actor *github.BypassActor, client *gi
 
 // processRepoRoleActor processes a repository role actor.
 func processRepoRoleActor(ctx context.Context, actor *github.BypassActor, client *github.Client, repoRoles []string, orgName string, logger zerolog.Logger) error {
+	if len(repoRoles) == 0 {
+		return errors.New("No repository roles provided")
+	}
+
 	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, client, orgName)
 	if err != nil {
 		logger.Error().Err(err).Msgf("Failed to get custom repo roles for organization: %s.", orgName)
@@ -183,6 +187,7 @@ func processRepoRoleActor(ctx context.Context, actor *github.BypassActor, client
 	for _, repoRole := range repoRoles {
 		if roleID, exists := roleIDMap[repoRole]; exists {
 			actor.ActorID = &roleID
+			return nil // Process only one custom role per bypass actor
 		} else {
 			logger.Warn().Msgf("Repository role %s not found in organization %s.", repoRole, orgName)
 		}
@@ -190,36 +195,11 @@ func processRepoRoleActor(ctx context.Context, actor *github.BypassActor, client
 	return nil
 }
 
-// compareConditions compares the conditions of two rulesets, returning true if they match.
-func (h *RulesetHandler) compareConditions(rulesetConditions, eventConditions *github.RulesetConditions, logger zerolog.Logger) bool {
-
-	if !reflect.DeepEqual(rulesetConditions, eventConditions) {
-		logger.Info().Msgf("Conditions in the ruleset file do not match the conditions in the event.")
-		return false
-	}
-	return true
-}
-
-func (h *RulesetHandler) isNameChanged(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
-	if event.Changes != nil && event.Changes.Name.From == ruleset.Name {
-		logger.Info().Msgf("Ruleset name has been changed from %s to %s. Reverting name change.", event.Changes.Name.From, event.Ruleset.Name)
-		return true
-	}
-	return false
-}
-
-func (h *RulesetHandler) isEnforcementChanged(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
-	if event.Changes != nil && event.Changes.Enforcement.From == ruleset.Enforcement {
-		logger.Info().Msgf("Ruleset enforcement has been changed from %s to %s. Reverting enforcement change.", event.Changes.Enforcement.From, event.Ruleset.Enforcement)
-		return true
-	}
-	return false
-}
-
-func (h *RulesetHandler) isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
+func isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
 	if ruleset.Name != event.Ruleset.Name {
-		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by the bot.", event.Ruleset.Name, event.Organization.GetLogin())
+		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by this App.", event.Ruleset.Name, event.Organization.GetLogin())
 		return false
 	}
+	logger.Info().Msgf("Ruleset %s in the organization %s is managed by this App.", event.Ruleset.Name, event.Organization.GetLogin())
 	return true
 }

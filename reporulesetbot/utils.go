@@ -11,7 +11,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func (h *RulesetHandler) createRuleset(ctx context.Context, client *github.Client, orgName string, ruleset *github.Ruleset, logger zerolog.Logger) error {
+// createRuleset creates a new organization ruleset.
+func createRuleset(ctx context.Context, client *github.Client, orgName string, ruleset *github.Ruleset, logger zerolog.Logger) error {
 	if _, _, err := client.Organizations.CreateOrganizationRuleset(ctx, orgName, ruleset); err != nil {
 		return errors.Wrap(err, "Failed to deploy repository ruleset")
 	}
@@ -19,11 +20,12 @@ func (h *RulesetHandler) createRuleset(ctx context.Context, client *github.Clien
 	return nil
 }
 
-func (h *RulesetHandler) editRuleset(ctx context.Context, client *github.Client, orgName string, rulesetID int64, ruleset *github.Ruleset, logger zerolog.Logger) error {
+// editRuleset updates an existing organization ruleset.
+func editRuleset(ctx context.Context, client *github.Client, orgName string, rulesetID int64, ruleset *github.Ruleset, logger zerolog.Logger) error {
 	if _, _, err := client.Organizations.UpdateOrganizationRuleset(ctx, orgName, rulesetID, ruleset); err != nil {
 		return errors.Wrap(err, "Failed to update repository ruleset")
 	}
-	logger.Info().Msgf("Successfully updated the %s ruleset for organization %s.", ruleset.Name, orgName)
+	logger.Info().Msgf("Successfully updated the %s ruleset for organization %s to match the configuration file.", ruleset.Name, orgName)
 	return nil
 }
 
@@ -74,7 +76,7 @@ func getAuthenticatedApp(ctx context.Context, client *github.Client) (string, er
 	return app.GetName(), nil
 }
 
-// newJWTClient creates a new JWT client.
+// newJWTClient creates a new client using a JSON Web Token (JWT) for authentication.
 func newJWTClient() (*github.Client, error) {
 	config, err := ReadConfig("config.yml")
 	if err != nil {

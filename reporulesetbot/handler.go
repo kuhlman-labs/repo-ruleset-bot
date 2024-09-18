@@ -108,8 +108,11 @@ func (h *RulesetHandler) handleRulesetCreated(event *RulesetEvent, logger zerolo
 
 // handleRulesetEditedhandles the "edited" action for repository ruleset events.
 func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *RulesetEvent, logger zerolog.Logger) error {
-	logger.Info().Msgf("Ruleset %s has been edited in the organization %s by %s.", event.Ruleset.Name, event.Organization.GetLogin(), event.Sender.GetLogin())
 	orgName := event.Organization.GetLogin()
+	eventInstallationID := event.Installation.GetID()
+	eventSender := event.Sender.GetLogin()
+	rulesetID := event.Ruleset.GetID()
+	rulesetName := event.Ruleset.Name
 
 	jwtclient, err := newJWTClient()
 	if err != nil {
@@ -123,37 +126,26 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 
 	appName = appName + "[bot]"
 
-	client, err := h.ClientCreator.NewInstallationClient(event.Installation.GetID())
+	client, err := h.ClientCreator.NewInstallationClient(eventInstallationID)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create installation client")
 	}
 
-	ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
-	if err != nil {
-		return errors.Wrap(err, "Failed to read ruleset from file")
-	}
-
-	rulesetID := event.Ruleset.GetID()
-
-	//Check if event sender is the bot
-	if event.Sender.GetLogin() == appName {
-		logger.Info().Msgf("Ruleset %s in the organization %s was edited by the bot.", event.Ruleset.Name, event.Organization.GetLogin())
+	if eventSender == appName {
+		logger.Info().Msgf("Ruleset %s in the organization %s was edited by %s.", rulesetName, orgName, appName)
 		return nil
-	} else if event.Sender.GetLogin() != appName {
-		logger.Info().Msgf("Ruleset %s in the organization %s was edited by a user.", event.Ruleset.Name, event.Organization.GetLogin())
-		h.editRuleset(ctx, client, orgName, rulesetID, ruleset, logger)
-		return nil
-	}
-
-	// Check if the ruleset needs to be updated
-	if h.isNameChanged(event, ruleset, logger) || h.isEnforcementChanged(event, ruleset, logger) || !h.compareRulesets(ruleset, event.Ruleset, logger) {
-		logger.Info().Msgf("Updating ruleset %s for organization %s.", event.Ruleset.Name, event.Organization.GetLogin())
-		h.editRuleset(ctx, client, orgName, rulesetID, ruleset, logger)
+	} else {
+		logger.Info().Msgf("Ruleset %s in the organization %s was edited by the user %s.", rulesetName, orgName, eventSender)
+		ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
+		if err != nil {
+			return errors.Wrap(err, "Failed to read ruleset from file")
+		}
+		if !isManagedRuleset(event, ruleset, logger) {
+			return nil
+		}
+		editRuleset(ctx, client, orgName, rulesetID, ruleset, logger)
 		return nil
 	}
-
-	logger.Info().Msgf("Ruleset %s in the organization %s matches the ruleset set in the ruleset file.", event.Ruleset.Name, event.Organization.GetLogin())
-	return nil
 }
 
 // handleRulesetDeleted handles the "deleted" action for repository ruleset events.
@@ -171,13 +163,13 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 		return errors.Wrap(err, "Failed to read rulesets from file")
 	}
 
-	if !h.isManagedRuleset(event, ruleset, logger) {
+	if !isManagedRuleset(event, ruleset, logger) {
 		return nil
 	}
 
 	logger.Info().Msgf("Recreating ruleset %s in organization %s.", event.Ruleset.Name, orgName)
 
-	if err := h.createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
+	if err := createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
 		return err
 	}
 
@@ -186,15 +178,14 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 
 // handleInstallation processes installation events.
 func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.InstallationEvent, logger zerolog.Logger) error {
-
 	installationID := event.GetInstallation().GetID()
 	orgName := event.Installation.Account.GetLogin()
 	action := event.GetAction()
 	appName := event.GetInstallation().GetAppSlug()
 
-	logger.Info().Msgf("Application %s installed in the organization %s.", appName, orgName)
+	logger.Info().Msgf("Application %s was installed in the organization %s.", appName, orgName)
 
-	if action != "created" {
+	if action != ActionCreated {
 		return nil
 	}
 
@@ -208,46 +199,7 @@ func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.I
 		return errors.Wrap(err, "Failed to read rulesets from file")
 	}
 
-	h.createRuleset(ctx, client, orgName, ruleset, logger)
+	createRuleset(ctx, client, orgName, ruleset, logger)
 
 	return nil
-}
-
-// compareRulesets compares two rulesets, returning true if they match.
-func (h *RulesetHandler) compareRulesets(ruleset, event *github.Ruleset, logger zerolog.Logger) bool {
-	if ruleset == nil || event == nil {
-		return false
-	}
-
-	if !h.compareRules(ruleset.Rules, event.Rules, logger) {
-		return false
-	}
-
-	if !h.compareConditions(ruleset.Conditions, event.Conditions, logger) {
-		return false
-	}
-
-	return true
-}
-
-// compareRules compares the rules of two rulesets, returning true if they match.
-func (h *RulesetHandler) compareRules(rulesetRules, eventRules []*github.RepositoryRule, logger zerolog.Logger) bool {
-	if len(rulesetRules) != len(eventRules) {
-		logger.Info().Msgf("Number of rules in the ruleset file does not match the number of rules in the event.")
-		return false
-	}
-
-	rulesetRuleTypes := make(map[string]struct{}, len(rulesetRules))
-	for _, rule := range rulesetRules {
-		rulesetRuleTypes[rule.Type] = struct{}{}
-	}
-
-	for _, eventRule := range eventRules {
-		if _, exists := rulesetRuleTypes[eventRule.Type]; !exists {
-			logger.Info().Msgf("Rule type %s in the ruleset file was not found in the event.", eventRule.Type)
-			return false
-		}
-	}
-
-	return true
 }
