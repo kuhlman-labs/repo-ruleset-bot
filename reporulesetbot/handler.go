@@ -152,10 +152,6 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 		return nil
 	}
 
-	if !h.isManagedRuleset(event, ruleset, logger) {
-		return nil
-	}
-
 	logger.Info().Msgf("Ruleset %s in the organization %s matches the ruleset set in the ruleset file.", event.Ruleset.Name, event.Organization.GetLogin())
 	return nil
 }
