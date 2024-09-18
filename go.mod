@@ -3,6 +3,7 @@ module github.com/kuhlman-labs/repo-ruleset-bot
 go 1.22.5
 
 require (
+	github.com/bradleyfalzon/ghinstallation/v2 v2.11.0
 	github.com/google/go-github/v63 v63.0.0
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
 	github.com/palantir/go-githubapp v0.27.0
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/bradleyfalzon/ghinstallation/v2 v2.11.0 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
