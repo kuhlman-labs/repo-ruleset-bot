@@ -38,11 +38,9 @@ func main() {
 	}
 
 	repoRulesetHandler := reporulesetbot.RulesetHandler{
-		ClientCreator:   cc,
-		Logger:          logger,
-		RuleSet:         config.RuleSet,
-		CustomRepoRoles: config.CustomRepoRoles,
-		Teams:           config.Teams,
+		ClientCreator: cc,
+		Logger:        logger,
+		RuleSet:       config.RuleSet,
 	}
 
 	webhookHandler := githubapp.NewDefaultEventDispatcher(config.Github, &repoRulesetHandler)

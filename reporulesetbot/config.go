@@ -14,9 +14,7 @@ type Config struct {
 	Server HTTPConfig       `yaml:"server"`
 	Github githubapp.Config `yaml:"github"`
 
-	RuleSet         string   `yaml:"ruleset"`
-	CustomRepoRoles []string `yaml:"custom_repo_roles"`
-	Teams           []string `yaml:"teams"`
+	RuleSet string `yaml:"ruleset"`
 }
 
 // HTTPConfig represents the configuration of the HTTP server.

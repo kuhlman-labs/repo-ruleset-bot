@@ -14,9 +14,7 @@ import (
 type RulesetHandler struct {
 	githubapp.ClientCreator
 	zerolog.Logger
-	RuleSet         string
-	CustomRepoRoles []string
-	Teams           []string
+	RuleSet string
 }
 
 // Constants for action and event types
@@ -26,6 +24,7 @@ const (
 	ActionDeleted              = "deleted"
 	EventTypeRepositoryRuleset = "repository_ruleset"
 	EventTypeInstallation      = "installation"
+	EventTypeRelease           = "release"
 )
 
 // RulesetEvent represents a GitHub ruleset event.
@@ -42,7 +41,7 @@ type RulesetEvent struct {
 
 // Handles returns the list of event types handled by the RulesetHandler.
 func (h *RulesetHandler) Handles() []string {
-	return []string{"repository_ruleset", "installation"}
+	return []string{"repository_ruleset", "installation", "release"}
 }
 
 // Handle processes the event payload based on the event type.
@@ -55,6 +54,8 @@ func (h *RulesetHandler) Handle(ctx context.Context, eventType, deliveryID strin
 		return h.handleRepositoryRulesetEvent(ctx, payload, logger)
 	case EventTypeInstallation:
 		return h.handleInstallationEvent(ctx, payload, logger)
+	case EventTypeRelease:
+		return h.handleReleaseEvent(ctx, payload, logger)
 	default:
 		logger.Warn().Msgf("Unhandled event type: %s.", eventType)
 		return nil
@@ -83,6 +84,18 @@ func (h *RulesetHandler) handleInstallationEvent(ctx context.Context, payload []
 
 	logger.Info().Msgf("Installation event received for the organization %s: %s.", event.Installation.Account.GetLogin(), event.GetAction())
 	return h.handleInstallation(ctx, event, logger)
+}
+
+// handleReleaseEvent handles release events.
+func (h *RulesetHandler) handleReleaseEvent(ctx context.Context, payload []byte, logger zerolog.Logger) error {
+	var event *github.ReleaseEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		logger.Error().Err(err).Msg("Failed to parse release event payload.")
+		return errors.Wrap(err, "Failed to parse release event payload")
+	}
+
+	logger.Info().Msgf("Release event received for the repository %s: %s.", event.GetRepo().GetFullName(), event.GetAction())
+	return h.handleRelease(ctx, event, logger)
 }
 
 // handleRepositoryRuleset processes organization ruleset events.
@@ -119,12 +132,12 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 		return errors.Wrap(err, "Failed to create JWT client")
 	}
 
-	appName, err := getAuthenticatedApp(ctx, jwtclient)
+	app, err := getAuthenticatedApp(ctx, jwtclient)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get authenticated app")
 	}
 
-	appName = appName + "[bot]"
+	appName := app.GetSlug() + "[bot]"
 
 	client, err := h.ClientCreator.NewInstallationClient(eventInstallationID)
 	if err != nil {
@@ -200,6 +213,68 @@ func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.I
 	}
 
 	createRuleset(ctx, client, orgName, ruleset, logger)
+
+	return nil
+}
+
+// handleRelease processes release events.
+func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.ReleaseEvent, logger zerolog.Logger) error {
+	repoName := event.GetRepo().GetFullName()
+	action := event.GetAction()
+	tagName := event.GetRelease().GetTagName()
+
+	jwtclient, err := newJWTClient()
+	if err != nil {
+		return errors.Wrap(err, "Failed to create JWT client")
+	}
+
+	app, err := getAuthenticatedApp(ctx, jwtclient)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get app")
+	}
+
+	appRepoURL := app.GetExternalURL()
+
+	appRepoName, err := getRepoFullNameFromURL(appRepoURL)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get app repo name")
+	}
+
+	if repoName != appRepoName {
+		return nil
+	}
+
+	logger.Info().Msgf("Release %s was %s for the repository %s.", tagName, action, repoName)
+	logger.Info().Msgf("Updating the rulesets...")
+
+	//get installations for the app
+	installations, err := getOrgInstallations(ctx, jwtclient)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get installations for authenticated app")
+	}
+
+	for orgName, installation := range installations {
+		client, err := h.ClientCreator.NewInstallationClient(installation)
+		if err != nil {
+			return errors.Wrap(err, "Failed to create installation client")
+		}
+
+		ruleset, err := h.readRulesetFromFile(h.RuleSet, ctx, client, orgName, logger)
+		if err != nil {
+			return errors.Wrap(err, "Failed to read rulesets from file")
+		}
+
+		rulesetName := ruleset.Name
+
+		logger.Info().Msgf("Updating the ruleset %s for the organization %s...", rulesetName, orgName)
+
+		rulesetID, err := getOrgRulesets(ctx, client, orgName, rulesetName)
+		if err != nil {
+			return errors.Wrap(err, "Failed to get ruleset ID")
+		}
+
+		editRuleset(ctx, client, orgName, rulesetID, ruleset, logger)
+	}
 
 	return nil
 }

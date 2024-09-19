@@ -3,7 +3,9 @@ package reporulesetbot
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v63/github"
@@ -58,6 +60,24 @@ func getTeamByName(ctx context.Context, client *github.Client, orgName, teamName
 	return team, nil
 }
 
+// getTeamByID returns the team by its ID.
+func getTeamByID(ctx context.Context, client *github.Client, orgID, teamID int64) (*github.Team, error) {
+	team, _, err := client.Teams.GetTeamByID(ctx, orgID, teamID)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to get team")
+	}
+	return team, nil
+}
+
+// getOrgID returns the organization ID for a given organization name.
+func getOrgID(ctx context.Context, client *github.Client, orgName string) (int64, error) {
+	org, _, err := client.Organizations.Get(ctx, orgName)
+	if err != nil {
+		return 0, errors.Wrap(err, "Failed to get organization")
+	}
+	return org.GetID(), nil
+}
+
 // getCustomRepoRolesForOrg returns the custom repository roles for an organization.
 func getCustomRepoRolesForOrg(ctx context.Context, client *github.Client, orgName string) (*github.OrganizationCustomRepoRoles, error) {
 	customRepoRoles, _, err := client.Organizations.ListCustomRepoRoles(ctx, orgName)
@@ -67,13 +87,22 @@ func getCustomRepoRolesForOrg(ctx context.Context, client *github.Client, orgNam
 	return customRepoRoles, nil
 }
 
-// getAuthenticatedApp returns the authenticated app name.
-func getAuthenticatedApp(ctx context.Context, client *github.Client) (string, error) {
+// getAuthenticatedApp returns the authenticated app.
+func getAuthenticatedApp(ctx context.Context, client *github.Client) (*github.App, error) {
 	app, _, err := client.Apps.Get(ctx, "")
 	if err != nil {
-		return "", errors.Wrap(err, "Failed to get app")
+		return nil, errors.Wrap(err, "Failed to get app")
 	}
-	return app.GetName(), nil
+	return app, nil
+}
+
+// getInstallationsForAuthenticatedApp returns the installations for the authenticated app.
+func getInstallationsForAuthenticatedApp(ctx context.Context, client *github.Client) ([]*github.Installation, error) {
+	installations, _, err := client.Apps.ListInstallations(ctx, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to list installations")
+	}
+	return installations, nil
 }
 
 // newJWTClient creates a new client using a JSON Web Token (JWT) for authentication.
@@ -109,4 +138,59 @@ func newJWTClient() (*github.Client, error) {
 	}
 
 	return client, nil
+}
+
+// getOrgInstallations returns a map of organization names and their corresponding installation IDs.
+func getOrgInstallations(ctx context.Context, client *github.Client) (map[string]int64, error) {
+	installations, err := getInstallationsForAuthenticatedApp(ctx, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to get installations for authenticated app")
+	}
+
+	orgInstallations := make(map[string]int64)
+	for _, installation := range installations {
+		if installation.Account != nil && installation.Account.Login != nil {
+			orgInstallations[*installation.Account.Login] = *installation.ID
+		}
+	}
+
+	return orgInstallations, nil
+}
+
+// getOrgInstallationID returns the installation ID of the authenticated app for a given organization.
+func getOrgInstallationID(ctx context.Context, client *github.Client, orgName string) (int64, error) {
+	installation, _, err := client.Apps.FindOrganizationInstallation(ctx, orgName)
+	if err != nil {
+		return 0, errors.Wrap(err, "Failed to find organization installation")
+	}
+
+	return installation.GetID(), nil
+}
+
+// getOrgRulesets returns the rulesetID for a given organization and ruleset name.
+func getOrgRulesets(ctx context.Context, client *github.Client, orgName, rulesetName string) (int64, error) {
+	rulesets, _, err := client.Organizations.GetAllOrganizationRulesets(ctx, orgName)
+	if err != nil {
+		return 0, errors.Wrap(err, "Failed to list organization rulesets")
+	}
+
+	for _, ruleset := range rulesets {
+		if ruleset.Name == rulesetName {
+			return ruleset.GetID(), nil
+		}
+	}
+
+	return 0, nil
+}
+
+// extractRepoFullName extracts the repository full name from a GitHub URL.
+func getRepoFullNameFromURL(githubURL string) (string, error) {
+	parsedURL, err := url.Parse(githubURL)
+	if err != nil {
+		return "", err
+	}
+
+	// The path will be in the format "/owner/repo"
+	path := strings.Trim(parsedURL.Path, "/")
+	return path, nil
 }

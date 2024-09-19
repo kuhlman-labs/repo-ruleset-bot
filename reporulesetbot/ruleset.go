@@ -57,6 +57,8 @@ func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Contex
 
 // processRuleset processes the ruleset.
 func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Ruleset, client *github.Client, orgName string, logger zerolog.Logger) error {
+	sourceOrgName := ruleset.Source
+
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "workflows" {
 			if err := processWorkflows(ctx, rule, client, orgName, logger); err != nil {
@@ -65,32 +67,16 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 		}
 	}
 
-	teamCounter := 0
-	customRepoRoleCounter := 0
 	for _, bypassActor := range ruleset.BypassActors {
 		if shouldProcessBypassActor(bypassActor) {
 			switch bypassActor.GetActorType() {
 			case "Team":
-				if teamCounter < len(h.Teams) {
-					team := h.Teams[teamCounter]
-					if err := processTeamActor(ctx, bypassActor, client, []string{team}, orgName, logger); err != nil {
-						return errors.Wrap(err, "Failed to process team bypass actors")
-					}
-					teamCounter++
-				} else {
-					logger.Warn().Msg("Not enough teams to pair with bypass actors.")
-					break
+				if err := h.processTeamActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
+					return errors.Wrap(err, "Failed to process team bypass actors")
 				}
 			case "RepositoryRole":
-				if customRepoRoleCounter < len(h.CustomRepoRoles) {
-					repoRole := h.CustomRepoRoles[customRepoRoleCounter]
-					if err := processRepoRoleActor(ctx, bypassActor, client, []string{repoRole}, orgName, logger); err != nil {
-						return errors.Wrap(err, "Failed to process repository role bypass actors")
-					}
-					customRepoRoleCounter++
-				} else {
-					logger.Warn().Msg("Not enough custom repository roles to pair with bypass actors.")
-					break
+				if err := h.processRepoRoleActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
+					return errors.Wrap(err, "Failed to process repository role bypass actors")
 				}
 			default:
 				logger.Warn().Msgf("Unhandled actor type: %s", bypassActor.GetActorType())
@@ -150,48 +136,105 @@ func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *githu
 }
 
 // processTeamActor processes a team actor.
-func processTeamActor(ctx context.Context, actor *github.BypassActor, client *github.Client, teams []string, orgName string, logger zerolog.Logger) error {
-	if len(teams) == 0 {
-		return errors.New("No teams provided")
+func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
+
+	// create jwt client
+	jwtclient, err := newJWTClient()
+	if err != nil {
+		return errors.Wrap(err, "Failed to create JWT client")
 	}
 
-	teamName := teams[0] // Pair the first team with the bypass actor
-	team, err := getTeamByName(ctx, client, orgName, teamName)
+	// get installation for the app
+	installation, err := getOrgInstallationID(ctx, jwtclient, sourceOrgName)
 	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to get team with name %s.", teamName)
+		return errors.Wrap(err, "Failed to get installation for the app")
+	}
+
+	// create installation client
+	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
+	if err != nil {
+		return errors.Wrap(err, "Failed to create installation client")
+	}
+
+	// get org ID
+	orgID, err := getOrgID(ctx, sourceClient, sourceOrgName)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get org ID")
+	}
+
+	teamID := actor.GetActorID()
+
+	sourceTeam, err := getTeamByID(ctx, sourceClient, orgID, teamID)
+	if err != nil {
+		errors.Wrapf(err, "Failed to get team with ID %d", teamID)
 		return err
 	}
 
-	teamID := team.GetID()
+	teamName := sourceTeam.GetSlug()
+
+	newTeam, err := getTeamByName(ctx, client, orgName, teamName)
+	if err != nil {
+		errors.Wrapf(err, "Failed to get team with name %s", teamName)
+		return err
+	}
+
+	teamID = newTeam.GetID()
+
 	actor.ActorID = &teamID
+
 	return nil
 }
 
 // processRepoRoleActor processes a repository role actor.
-func processRepoRoleActor(ctx context.Context, actor *github.BypassActor, client *github.Client, repoRoles []string, orgName string, logger zerolog.Logger) error {
-	if len(repoRoles) == 0 {
-		return errors.New("No repository roles provided")
-	}
+func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
+	actorID := actor.GetActorID()
 
-	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, client, orgName)
+	// create jwt client
+	jwtclient, err := newJWTClient()
 	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to get custom repo roles for organization: %s.", orgName)
-		return err
+		return errors.Wrap(err, "Failed to create JWT client")
 	}
 
-	roleIDMap := make(map[string]int64)
-	for _, role := range customRepoRoles.CustomRepoRoles {
-		roleIDMap[role.GetName()] = role.GetID()
+	// get installation for the app
+	installation, err := getOrgInstallationID(ctx, jwtclient, sourceOrgName)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get installation for the app")
 	}
 
-	for _, repoRole := range repoRoles {
-		if roleID, exists := roleIDMap[repoRole]; exists {
-			actor.ActorID = &roleID
-			return nil // Process only one custom role per bypass actor
-		} else {
-			logger.Warn().Msgf("Repository role %s not found in organization %s.", repoRole, orgName)
+	// create installation client
+	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
+	if err != nil {
+		return errors.Wrap(err, "Failed to create installation client")
+	}
+
+	// get custom repo roles for the source org
+	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, sourceClient, sourceOrgName)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get custom repo roles for source org")
+	}
+
+	var roleName string
+
+	for _, repoRole := range customRepoRoles.CustomRepoRoles {
+		if repoRole.GetID() == actorID {
+			roleName = repoRole.GetName()
 		}
 	}
+
+	// get custom repo roles for the target org
+	customRepoRoles, err = getCustomRepoRolesForOrg(ctx, client, orgName)
+	if err != nil {
+		return errors.Wrap(err, "Failed to get custom repo roles for target org")
+	}
+
+	for _, repoRole := range customRepoRoles.CustomRepoRoles {
+		if repoRole.GetName() == roleName {
+			actorID = repoRole.GetID()
+			actor.ActorID = &actorID
+			return nil
+		}
+	}
+
 	return nil
 }
 
