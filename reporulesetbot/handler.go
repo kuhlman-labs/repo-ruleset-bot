@@ -22,6 +22,7 @@ const (
 	ActionCreated              = "created"
 	ActionEdited               = "edited"
 	ActionDeleted              = "deleted"
+	ActionReleased             = "released"
 	EventTypeRepositoryRuleset = "repository_ruleset"
 	EventTypeInstallation      = "installation"
 	EventTypeRelease           = "release"
@@ -222,6 +223,11 @@ func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.Releas
 	repoName := event.GetRepo().GetFullName()
 	action := event.GetAction()
 	tagName := event.GetRelease().GetTagName()
+	actionType := event.GetAction()
+
+	if actionType != ActionReleased {
+		return nil
+	}
 
 	jwtclient, err := newJWTClient()
 	if err != nil {
@@ -265,8 +271,6 @@ func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.Releas
 		}
 
 		rulesetName := ruleset.Name
-
-		logger.Info().Msgf("Updating the ruleset %s for the organization %s...", rulesetName, orgName)
 
 		rulesetID, err := getOrgRulesets(ctx, client, orgName, rulesetName)
 		if err != nil {
