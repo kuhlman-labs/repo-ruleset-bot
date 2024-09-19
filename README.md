@@ -42,7 +42,7 @@ The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets 
 3. Click on "New ruleset"
 4. Compose the ruleset as you see fit.
 5. Once you have saved the ruleset, you can download the JSON representation of the ruleset. Click on the open addional options menu and select "Export Ruleset".
-6. Add the ruleset to your repository and configure the path to the ruleset in the `config.yml` file.
+6. Add the ruleset to the `rulesets` directory.
 
 **Important Note**: Any Teams, Custom Repository Roles, or Apps that are included as bypass actors in the ruleset must exist in the Organization that the ruleset is going to be applied to.
 
@@ -54,8 +54,6 @@ Create a [`config.yml`](config.yml) file in the root directory of your project w
 server:
   address: "127.0.0.1"
   port: 8080
-
-ruleset: "path/to/your/ruleset.json"
 
 github:
   v3_api_url: "https://api.github.com"
@@ -73,7 +71,6 @@ github:
 - **server**:
   - `address`: The address where the server will run.
   - `port`: The port on which the server will listen.
-- **ruleset**: The path to the JSON file containing the ruleset configuration.
 - **github**:
   - **app**:
     - `v3_api_url`: The URL for the GitHub v3 API.
@@ -110,10 +107,10 @@ github:
 
 ## Features
 
-Once the App is set up and running, it will listen for the ruleset events and deploy the ruleset configured when the app gets installed to an Organization. If someone modifies or deletes the ruleset from the GitHub UI, the app will revert the changes to the ruleset.
+Once the App is set up and running, it will listen for the ruleset events and deploy the rulesets located in the `rulesets` directory when the app gets installed to an Organization. If someone modifies or deletes the ruleset from the GitHub UI, the app will revert the changes to the ruleset.
 
 - **Deploy Ruleset**:
-  - When the app is installed to an Organization, it will deploy the defined ruleset to the Organization.
+  - When the app is installed to an Organization, it will deploy the rulesets located in the `rulesets` directory of this repository to the Organization.
   - If the Ruleset gets deleted, the app will redeploy the ruleset to the Organization.
 - **Revert Changes**:
   - If a user modifies the ruleset the app will revert the changes.

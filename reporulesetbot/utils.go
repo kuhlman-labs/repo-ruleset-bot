@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
@@ -193,4 +194,21 @@ func getRepoFullNameFromURL(githubURL string) (string, error) {
 	// The path will be in the format "/owner/repo"
 	path := strings.Trim(parsedURL.Path, "/")
 	return path, nil
+}
+
+// getRuleSetFiles returns a list of the ruleset files in the rulesets directory
+func getRuleSetFiles() ([]string, error) {
+	files, err := os.ReadDir("rulesets")
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to read rulesets directory")
+	}
+
+	var ruleSetFiles []string
+	for _, file := range files {
+		if !file.IsDir() {
+			ruleSetFiles = append(ruleSetFiles, filepath.Join("rulesets", file.Name()))
+		}
+	}
+
+	return ruleSetFiles, nil
 }

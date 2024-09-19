@@ -6,7 +6,33 @@ server:
 github:
   v3_api_url: "https://api.github.com/"
   app:
-    integration_id: 0
-    webhook_secret: "your-app-webhook-secret-here"
+    integration_id: 986118
+    webhook_secret: "test"
     private_key: |
-      your-app-private-key-content-here
+      -----BEGIN RSA PRIVATE KEY-----
+      MIIEpAIBAAKCAQEA5I7qfBN4YtZVPfzE62By24SsF4KH69IcgIQGyoFTUWbB3l3E
+      n+wtibbOnwN69sdd9JnwgVj3meBYSNIS3IYs+XZ4/ZrP8d8iOYgVeO0H/62okPHe
+      erT7M4csMysaI6gdpY/nrZN73IyilZUC0MNo0si1tfzR8SaCRcyLHmhpVwZr44Lz
+      yYcTu0/jXm91H+1dt2EsaMCyvmOAsiyWt8OQoYp302uebcZVSW98npsb50o833aa
+      pJzA4lqkaHAK9+bpwJ2NPDphkXn+2IsxNEQl8T3uowuHRJFXfjhgkFq7N9mYDJWl
+      k9BLwgtKTt/qBgoHKREH6OwxsYk77J/yeG3BFwIDAQABAoIBAEtJmIwOjdVg7Oti
+      XCt8tdkBtv53jPZtW94pn2MNfriNtMbe9GoJjmaSxTU0HEk2Gwj7vHGfMNCLSgmS
+      yYvC1wXFtM01NdJiwg9ZeFlBGyVpuuEkCzk4bJboq/Ke/BlKw5lJ8fMHZgGcgeHs
+      F+VUuS7V1qWABlf9a2Q6oIj/s9NqNqedYqxfwwqA6SSHiWzfvxI4S8APuBT/xFpG
+      QhwX1mMTpq0ZG5CQgiWgCWCCOuSV2Zrqv5IXSt41guf4F50267yaW4nsjO1wAlre
+      b7wSQJL6FBzIF/zKlh9ZL4F/OeWnABSf7GIV7bAXEVyzaw0gD3yYYIiBtil0htS2
+      XyV4pyECgYEA+ZE60SHAG+NlWT45IjJuAqDYaSwtgupJeES0aglVVR7MzWWKCvdu
+      6R9KHMVojf4SmGryfYnRBal5IZP3lSINUBODJdVdq1a6ljSszbvZEeUJOGERaubV
+      7EXHG5LjxC8iVXn656VEbAH5YRbpBiQg9Lwe8E++Wz3vGEACDVsG6+sCgYEA6nMO
+      2w6VsP95+8KR5TVkpri3vwLCbd0FYhnD6/QuvJdBanrJI8iLF9l7kskrZiDNCGOT
+      +XjSsVaR52tehNs6NipyG3T/EUdanU4NOOR/Ck8moonuevxqOaEW6/j5OasGBufL
+      ollW/PIOYjmRYoYvH9dvos5TX6PPc5XhuhgjkIUCgYEAtQ2YZwoeLd1NtG3A0z9U
+      shFwjvRe3CAORvNJE7hLsOIUYFpuyD/ztapegPryPDj70pmb7FlkS8BEQYjwT8AR
+      emt9dKATQW89FCWIzASgmSvZAY7iLPTkc3G33hg1pykutmY1EYLDXbwc6EPPsAXb
+      5tDnfR3NErKe16/wDTJhlhsCgYEAje9yQvQlc653Lw+wO8+DS9vwgdct1k1EgQuQ
+      LTz7PnljxQ7ozp0OeDXWNhtMBtw8xKNkZlfbVjlOw4ehBVWjfD9eLXk7Ij7MgQdL
+      wfGzZ45bmXNfyV0fAhygP+PPHjaHw455HaRwoVn5k0W+2qLZzLEkiK/YkcIeSZ+n
+      tH4AqfECgYBqEM/gUF5U+RLytuG2HXfLZy0TbrBx9Mf4jrc5AVo+ul1/8hl+eQju
+      DLa01YWvzdKT4fjy6m95DIvxxCtFEVR/PvqDHZ7IZWjwcsG32c5Q9iVAf7O/xxub
+      G/SRJYtCNuA6eLb+kymQtVcTwOTT6ammMAf9kI6/jT4+s0gNUcrJKA==
+      -----END RSA PRIVATE KEY-----

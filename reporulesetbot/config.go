@@ -13,8 +13,6 @@ import (
 type Config struct {
 	Server HTTPConfig       `yaml:"server"`
 	Github githubapp.Config `yaml:"github"`
-
-	RuleSet string `yaml:"ruleset"`
 }
 
 // HTTPConfig represents the configuration of the HTTP server.
@@ -51,7 +49,6 @@ func validateConfig(config *Config) error {
 	requiredFields := map[string]interface{}{
 		"Server Address":            config.Server.Address,
 		"Server Port":               config.Server.Port,
-		"Ruleset":                   config.RuleSet,
 		"GitHub App ID":             config.Github.App.IntegrationID,
 		"GitHub App private key":    config.Github.App.PrivateKey,
 		"GitHub App webhook secret": config.Github.App.WebhookSecret,

@@ -32,6 +32,25 @@ type Workflow struct {
 	Ref          string `json:"ref"`
 }
 
+// readMultipleRulesets reads muliple rulesets from JSON files.
+func (h *RulesetHandler) readMultipleRulesets(ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) ([]*github.Ruleset, error) {
+	var rulesets []*github.Ruleset
+
+	filenames, err := getRuleSetFiles()
+	if err != nil {
+		return nil, errors.Wrapf(err, "Failed to get ruleset files")
+	}
+
+	for _, filename := range filenames {
+		ruleset, err := h.readRulesetFromFile(filename, ctx, client, orgName, logger)
+		if err != nil {
+			return nil, err
+		}
+		rulesets = append(rulesets, ruleset)
+	}
+	return rulesets, nil
+}
+
 // readRulesetFromFile reads the ruleset from a JSON file.
 func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
 	logger.Info().Msgf("Processing ruleset file %s...", filename)
@@ -52,6 +71,8 @@ func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Contex
 		return nil, err
 	}
 
+	logger.Info().Msgf("Processed ruleset file %s.", filename)
+
 	return ruleset, nil
 }
 
@@ -62,7 +83,7 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "workflows" {
 			if err := processWorkflows(ctx, rule, client, orgName, logger); err != nil {
-				return errors.Wrap(err, "Failed to process workflows.")
+				return errors.Wrapf(err, "Failed to process workflows in ruleset file: %s", ruleset.Name)
 			}
 		}
 	}
@@ -72,12 +93,14 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 			switch bypassActor.GetActorType() {
 			case "Team":
 				if err := h.processTeamActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
-					return errors.Wrap(err, "Failed to process team bypass actors")
+					return errors.Wrapf(err, "Failed to process team bypass actor with id %d in ruleset file: %s", bypassActor.GetActorID(), ruleset.Name)
 				}
 			case "RepositoryRole":
 				if err := h.processRepoRoleActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
-					return errors.Wrap(err, "Failed to process repository role bypass actors")
+					return errors.Wrapf(err, "Failed to process repository role bypass actor with id %d in ruleset file: %s", bypassActor.GetActorID(), ruleset.Name)
 				}
+			case "Integration":
+				continue
 			default:
 				logger.Warn().Msgf("Unhandled actor type: %s", bypassActor.GetActorType())
 			}
@@ -121,14 +144,14 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, orgName string, logger zerolog.Logger) error {
 	repoName, err := getRepoName(ctx, client, workflow.RepositoryID)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to get repository name.")
-		return errors.Wrap(err, "Failed to get repository name")
+		logger.Error().Err(err).Msg("Failed to get repository name")
+		return errors.Wrapf(err, "Failed to get repository name for repository ID %d", workflow.RepositoryID)
 	}
 
 	newRepoID, err := getRepoID(ctx, client, orgName, repoName)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get repository ID.")
-		return errors.Wrap(err, "Failed to get repository ID")
+		return errors.Wrapf(err, "Failed to get repository ID for repository %s/%s", orgName, repoName)
 	}
 
 	workflow.RepositoryID = newRepoID
