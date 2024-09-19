@@ -22,8 +22,11 @@ The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets 
        - **Administration** -> **Read & Write**. This is needed to manage organization repository rulesets.
        - **Members** -> **Read-only**. This is needed to make calls to the Teams API.
        - **Custom repository roles** -> **Read-only**. This is needed to make calls to the Custom Repository Roles API.
+     - Under "Repository permissions":
+       - **Contents** -> **Read-only**. This is needed to read the release assets to get the ruleset configuration.
    - **Subscribe to Events**:
      - Subscribe to the "Repository ruleset" event.
+     - Subscribe to the "Release" event.
    - **Save**: Click "Create GitHub App".
 
 3. **Generate Private Key**:
