@@ -1,9 +1,9 @@
 # Repo Ruleset Bot
 
-## Purpose
-The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets are consistent with the predefined ruleset configuration. The bot will enforce the ruleset configuration by reverting any changes made to the ruleset, ensuring that the ruleset is always in the desired state.
+## Overview
+The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets are consistent with the predefined ruleset configuration. The bot will enforce the ruleset configuration by reverting any changes made to the ruleset that aren't sent by the app, ensuring that the ruleset is always in the desired state.
 
-## How to Create the GitHub App in GitHub
+## Creating the GitHub App
 
 1. **Navigate to GitHub Settings**:
    - Go to your GitHub User account or Organization settings.
@@ -14,7 +14,7 @@ The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets 
    - Click on "New GitHub App".
    - Fill in the required details:
      - **GitHub App name**: Choose a unique name for your app.
-     - **Homepage URL**: Provide a URL for your app's homepage.
+     - **Homepage URL**: Provide the URL for the GitHub repository that is hosting the GitHub App code. **NOTE**: This must be a repository in a GitHub organization where the app will be installed. (e.g., https://github.com/kuhlman-labs/repo-ruleset-bot) 
      - **Webhook URL**: Set this to the URL where your app will receive webhook events (e.g., `http://your-server.com/api/github/hook`).
      - **Webhook secret**: Generate a secret for securing webhook payloads.
    - **Permissions**:
@@ -41,7 +41,7 @@ The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets 
 5. Once you have saved the ruleset, you can download the JSON representation of the ruleset. Click on the open addional options menu and select "Export Ruleset".
 6. Add the ruleset to your repository and configure the path to the ruleset in the `config.yml` file.
 
-**Important Note**: Any Teams, Custom Repository Roles, or Apps that are included as bypass actors in the ruleset must be added to the `config.yml` file and exist in the Organization that the ruleset is going to be applied to.
+**Important Note**: Any Teams, Custom Repository Roles, or Apps that are included as bypass actors in the ruleset must exist in the Organization that the ruleset is going to be applied to.
 
 ## How to Configure the [`config.yml`](config.yml) File
 
@@ -53,13 +53,6 @@ server:
   port: 8080
 
 ruleset: "path/to/your/ruleset.json"
-
-custom_repo_roles:
-  - "role1"
-  - "role2"
-teams:
-  - "team1"
-  - "team2"
 
 github:
   v3_api_url: "https://api.github.com"
@@ -78,8 +71,6 @@ github:
   - `address`: The address where the server will run.
   - `port`: The port on which the server will listen.
 - **ruleset**: The path to the JSON file containing the ruleset configuration.
-- **custom_repo_roles**: A list of custom repository roles to add as bypass actors to the ruleset.
-- **teams**: A list of teams to be added as bypass actors to the ruleset.
 - **github**:
   - **app**:
     - `v3_api_url`: The URL for the GitHub v3 API.
@@ -89,8 +80,12 @@ github:
 
 ## How to Run the App
 
+1. **Clone the Repository**:
+   - Clone or Fork the Repository to a GitHub Organization where you have Admin access.
+   - Clone the repository to your local machine or the machine which will host the app:
+
 1. **Install Dependencies**:
-   - Ensure you have Go installed on your machine.
+   - Ensure you have Go installed on the machine.
    - Install the required Go packages:
      ```sh
      go mod tidy
@@ -108,7 +103,7 @@ github:
      ./repo-ruleset-bot
      ```
 
-   - The server will start and listen for GitHub events on the specified address and port. The default path it will listen on is `/api/github/hook`.
+   - The server will start and listen for GitHub events on the specified address and port. ***The default path it will listen on is `/api/github/hook`.***
 
 ## Features
 
@@ -118,9 +113,9 @@ Once the App is set up and running, it will listen for the ruleset events and de
   - When the app is installed to an Organization, it will deploy the defined ruleset to the Organization.
   - If the Ruleset gets deleted, the app will redeploy the ruleset to the Organization.
 - **Revert Changes**:
-  - If someone modifies the name, enforcement level, or rules of the ruleset, the app will revert the changes.
-- **Not Currently Supported**:
-  - If someone modifies bypass actors, the app will not revert the changes since the bypass actors are not delivered in the `edited` payload currently, however this will change in the future.
+  - If a user modifies the ruleset the app will revert the changes.
+- **Updating the Ruleset**:
+  - If the ruleset is updated, the app will redeploy the ruleset to the Organizations it is installed to. This is triggered by creating a release in the repository with the updated ruleset.
 
 ## Contributing
 
