@@ -115,7 +115,7 @@ Once the App is set up and running, it will listen for the ruleset events and de
 - **Revert Changes**:
   - If a user modifies the ruleset the app will revert the changes.
 - **Updating the Ruleset**:
-  - If the ruleset is updated, the app will redeploy the ruleset to the Organizations it is installed to. This is triggered by creating a release in the repository with the updated ruleset.
+  - To update to a new version of the ruleset, you can update the JSON file and create a new release in the repository. This will trigger an update to the ruleset in the Organizations where the app is installed.
 
 ## Contributing
 
