@@ -147,27 +147,27 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 	if eventSender == appName {
 		logger.Info().Msgf("Ruleset %s in the organization %s was edited by app %s.", eventRulesetName, orgName, appName)
 		return nil
-	} else {
-		logger.Info().Msgf("Ruleset %s in the organization %s was edited by the user %s.", eventRulesetName, orgName, eventSender)
-
-		rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
-		if err != nil {
-			return errors.Wrap(err, "Failed to read rulesets from file")
-		}
-
-		for _, ruleset := range rulesets {
-			if ruleset.Name != eventRulesetName {
-				continue
-			}
-			if !isManagedRuleset(event, ruleset, logger) {
-				return nil
-			}
-			if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
+
+	logger.Info().Msgf("Ruleset %s in the organization %s was edited by the user %s.", eventRulesetName, orgName, eventSender)
+
+	rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
+	if err != nil {
+		return errors.Wrap(err, "Failed to read rulesets from file")
+	}
+
+	for _, ruleset := range rulesets {
+		if ruleset.Name != eventRulesetName {
+			continue
+		}
+		if !isManagedRuleset(event, ruleset, logger) {
+			return nil
+		}
+		if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // handleRulesetDeleted handles the "deleted" action for repository ruleset events.
