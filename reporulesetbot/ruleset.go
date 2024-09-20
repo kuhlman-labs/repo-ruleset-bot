@@ -168,7 +168,7 @@ func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Cl
 	}
 
 	// get installation for the app
-	installation, err := getOrgInstallationID(ctx, jwtclient, sourceOrgName)
+	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get installation for the app")
 	}
@@ -219,7 +219,7 @@ func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *githu
 	}
 
 	// get installation for the app
-	installation, err := getOrgInstallationID(ctx, jwtclient, sourceOrgName)
+	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get installation for the app")
 	}

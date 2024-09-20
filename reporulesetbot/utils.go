@@ -159,7 +159,7 @@ func getOrgInstallations(ctx context.Context, client *github.Client) (map[string
 }
 
 // getOrgInstallationID returns the installation ID of the authenticated app for a given organization.
-func getOrgInstallationID(ctx context.Context, client *github.Client, orgName string) (int64, error) {
+func getOrgAppInstallationID(ctx context.Context, client *github.Client, orgName string) (int64, error) {
 	installation, _, err := client.Apps.FindOrganizationInstallation(ctx, orgName)
 	if err != nil {
 		return 0, errors.Wrap(err, "Failed to find organization installation")
@@ -169,19 +169,13 @@ func getOrgInstallationID(ctx context.Context, client *github.Client, orgName st
 }
 
 // getOrgRulesets returns the rulesetID for a given organization and ruleset name.
-func getOrgRulesets(ctx context.Context, client *github.Client, orgName, rulesetName string) (int64, error) {
+func getOrgRulesets(ctx context.Context, client *github.Client, orgName string) ([]*github.Ruleset, error) {
 	rulesets, _, err := client.Organizations.GetAllOrganizationRulesets(ctx, orgName)
 	if err != nil {
-		return 0, errors.Wrap(err, "Failed to list organization rulesets")
+		return nil, errors.Wrap(err, "Failed to get organization rulesets")
 	}
 
-	for _, ruleset := range rulesets {
-		if ruleset.Name == rulesetName {
-			return ruleset.GetID(), nil
-		}
-	}
-
-	return 0, nil
+	return rulesets, nil
 }
 
 // extractRepoFullName extracts the repository full name from a GitHub URL.

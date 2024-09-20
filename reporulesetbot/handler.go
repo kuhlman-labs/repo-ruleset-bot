@@ -278,7 +278,6 @@ func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.Releas
 	logger.Info().Msgf("Release %s was %s for the repository %s.", tagName, action, repoName)
 	logger.Info().Msgf("Updating the rulesets...")
 
-	//get installations for the app
 	installations, err := getOrgInstallations(ctx, jwtclient)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get installations for authenticated app")
@@ -296,16 +295,29 @@ func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.Releas
 		}
 
 		for _, ruleset := range rulesets {
-
 			rulesetName := ruleset.Name
 
-			rulesetID, err := getOrgRulesets(ctx, client, orgName, rulesetName)
+			orgRulesets, err := getOrgRulesets(ctx, client, orgName)
 			if err != nil {
 				return errors.Wrap(err, "Failed to get ruleset ID")
 			}
 
-			if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
-				return err
+			found := false
+			for _, orgRuleset := range orgRulesets {
+				if orgRuleset.Name == rulesetName {
+					found = true
+					rulesetID := orgRuleset.GetID()
+					if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
+						return err
+					}
+					break
+				}
+			}
+
+			if !found {
+				if err := createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
+					return err
+				}
 			}
 		}
 	}
