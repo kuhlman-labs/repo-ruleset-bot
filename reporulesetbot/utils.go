@@ -110,33 +110,18 @@ func getInstallationsForAuthenticatedApp(ctx context.Context, client *github.Cli
 func newJWTClient() (*github.Client, error) {
 	config, err := ReadConfig("config.yml")
 	if err != nil {
-		panic(err)
+		return nil, errors.Wrap(err, "Failed to read config file")
 	}
 
-	// Create a file of the private key
-	_, err = os.Create("private-key.pem")
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to create private key file")
-	}
+	// Use an in-memory representation of the private key
+	privateKey := []byte(config.Github.App.PrivateKey)
 
-	// Write the configured private key to the file
-	err = os.WriteFile("private-key.pem", []byte(config.Github.App.PrivateKey), 0600)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to write private key to file")
-	}
-
-	// Create a new JWT client
-	itr, err := ghinstallation.NewAppsTransportKeyFromFile(http.DefaultTransport, config.Github.App.IntegrationID, "private-key.pem")
+	// Create a new JWT client using the in-memory private key
+	itr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, config.Github.App.IntegrationID, privateKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to create JWT client")
 	}
 	client := github.NewClient(&http.Client{Transport: itr})
-
-	// Delete the private key file
-	err = os.Remove("private-key.pem")
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to delete private key file")
-	}
 
 	return client, nil
 }

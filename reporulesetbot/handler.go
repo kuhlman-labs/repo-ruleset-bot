@@ -14,7 +14,6 @@ import (
 type RulesetHandler struct {
 	githubapp.ClientCreator
 	zerolog.Logger
-	RuleSet string
 }
 
 // Constants for action and event types
