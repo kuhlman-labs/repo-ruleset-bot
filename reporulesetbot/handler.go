@@ -151,7 +151,7 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 
 	logger.Info().Msgf("Ruleset %s in the organization %s was edited by the user %s.", eventRulesetName, orgName, eventSender)
 
-	rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
+	rulesets, err := h.getRulesets(ctx, client, orgName, logger)
 	if err != nil {
 		return errors.Wrap(err, "Failed to read rulesets from file")
 	}
@@ -181,7 +181,7 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 		return errors.Wrap(err, "Failed to create installation client")
 	}
 
-	rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
+	rulesets, err := h.getRulesets(ctx, client, orgName, logger)
 	if err != nil {
 		return errors.Wrap(err, "Failed to read rulesets from file")
 	}
@@ -225,7 +225,7 @@ func (h *RulesetHandler) handleInstallation(ctx context.Context, event *github.I
 		return errors.Wrap(err, "Failed to create installation client")
 	}
 
-	rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
+	rulesets, err := h.getRulesets(ctx, client, orgName, logger)
 	if err != nil {
 		return errors.Wrap(err, "Failed to read rulesets from file")
 	}
@@ -288,7 +288,7 @@ func (h *RulesetHandler) handleRelease(ctx context.Context, event *github.Releas
 			return errors.Wrap(err, "Failed to create installation client")
 		}
 
-		rulesets, err := h.readMultipleRulesets(ctx, client, orgName, logger)
+		rulesets, err := h.getRulesets(ctx, client, orgName, logger)
 		if err != nil {
 			return errors.Wrap(err, "Failed to read rulesets from file")
 		}

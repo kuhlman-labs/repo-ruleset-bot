@@ -32,8 +32,8 @@ type Workflow struct {
 	Ref          string `json:"ref"`
 }
 
-// readMultipleRulesets reads muliple rulesets from JSON files.
-func (h *RulesetHandler) readMultipleRulesets(ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) ([]*github.Ruleset, error) {
+// getRulesets returns the rulesets from the ruleset files.
+func (h *RulesetHandler) getRulesets(ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) ([]*github.Ruleset, error) {
 	var rulesets []*github.Ruleset
 
 	filenames, err := getRuleSetFiles()
@@ -42,7 +42,7 @@ func (h *RulesetHandler) readMultipleRulesets(ctx context.Context, client *githu
 	}
 
 	for _, filename := range filenames {
-		ruleset, err := h.readRulesetFromFile(filename, ctx, client, orgName, logger)
+		ruleset, err := h.processRulesetFile(filename, ctx, client, orgName, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -51,8 +51,8 @@ func (h *RulesetHandler) readMultipleRulesets(ctx context.Context, client *githu
 	return rulesets, nil
 }
 
-// readRulesetFromFile reads the ruleset from a JSON file.
-func (h *RulesetHandler) readRulesetFromFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
+// processRulesetFile processes the ruleset from a given JSON file.
+func (h *RulesetHandler) processRulesetFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
 	logger.Info().Msgf("Processing ruleset file %s...", filename)
 
 	jsonData, err := os.ReadFile(filename)
