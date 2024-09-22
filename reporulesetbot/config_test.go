@@ -1,11 +1,10 @@
-package reporulesetbot_test
+package reporulesetbot
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/kuhlman-labs/repo-ruleset-bot/reporulesetbot"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -32,7 +31,7 @@ github:
 	assert.NoError(t, err)
 
 	// Read the config
-	config, err := reporulesetbot.ReadConfig(configPath)
+	config, err := ReadConfig(configPath)
 	assert.NoError(t, err)
 	assert.NotNil(t, config)
 	assert.Equal(t, "127.0.0.1", config.Server.Address)
@@ -45,7 +44,7 @@ github:
 
 func TestReadConfig_NonExistentFile(t *testing.T) {
 	// Read a non-existent config file
-	config, err := reporulesetbot.ReadConfig("non_existent_config.yml")
+	config, err := ReadConfig("non_existent_config.yml")
 	assert.Error(t, err)
 	assert.Nil(t, config)
 }
@@ -73,7 +72,7 @@ github:
 	assert.NoError(t, err)
 
 	// Read the config
-	config, err := reporulesetbot.ReadConfig(configPath)
+	config, err := ReadConfig(configPath)
 	assert.Error(t, err)
 	assert.Nil(t, config)
 }
@@ -101,7 +100,7 @@ github:
 	assert.NoError(t, err)
 
 	// Read the config
-	config, err := reporulesetbot.ReadConfig(configPath)
+	config, err := ReadConfig(configPath)
 	assert.Error(t, err)
 	assert.Nil(t, config)
 }
