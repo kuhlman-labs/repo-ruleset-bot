@@ -163,29 +163,44 @@ func getOrgRulesets(ctx context.Context, client *github.Client, orgName string) 
 	return rulesets, nil
 }
 
-// extractRepoFullName extracts the repository full name from a GitHub URL.
+// getRepoFullNameFromURL extracts the repository full name from a GitHub URL.
 func getRepoFullNameFromURL(githubURL string) (string, error) {
 	parsedURL, err := url.Parse(githubURL)
 	if err != nil {
-		return "", err
+		return "", errors.Wrapf(err, "Failed to parse URL: %s", githubURL)
 	}
 
-	// The path will be in the format "/owner/repo"
+	// Ensure the URL scheme is either http or https
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return "", errors.Wrapf(err, "Invalid URL scheme: %s", parsedURL.Scheme)
+	}
+
+	// Ensure the URL host is github.com
+	if parsedURL.Host != "github.com" {
+		return "", errors.Wrapf(err, "Invalid URL host: %s", parsedURL.Host)
+	}
+
+	// The path should be in the format "/owner/repo"
 	path := strings.Trim(parsedURL.Path, "/")
+	segments := strings.Split(path, "/")
+	if len(segments) != 2 {
+		return "", errors.Wrapf(err, "Invalid URL path: %s", path)
+	}
+
 	return path, nil
 }
 
-// getRuleSetFiles returns a list of the ruleset files in the rulesets directory
-func getRuleSetFiles() ([]string, error) {
-	files, err := os.ReadDir("rulesets")
+// getRuleSetFiles returns a list of the ruleset files in the specified directory
+func getRulesetFiles(dir string) ([]string, error) {
+	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to read rulesets directory")
+		return nil, errors.Wrapf(err, "Failed to read directory %s", dir)
 	}
 
 	var ruleSetFiles []string
 	for _, file := range files {
 		if !file.IsDir() {
-			ruleSetFiles = append(ruleSetFiles, filepath.Join("rulesets", file.Name()))
+			ruleSetFiles = append(ruleSetFiles, filepath.Join(dir, file.Name()))
 		}
 	}
 
