@@ -45,7 +45,7 @@ func TestGetRulesetFiles(t *testing.T) {
 		// Call the function with a non-existent directory
 		_, err := getRulesetFiles("nonexistentdir")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "Failed to read directory")
+		assert.Contains(t, err.Error(), "Failed to read from directory nonexistentdir")
 	})
 }
 

@@ -7,12 +7,7 @@ import (
 	"github.com/google/go-github/v65/github"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
-
-type MockClient struct {
-	mock.Mock
-}
 
 func TestShouldProcessBypassActor(t *testing.T) {
 	bypassActor := &github.BypassActor{}

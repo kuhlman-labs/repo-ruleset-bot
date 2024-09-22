@@ -194,7 +194,7 @@ func getRepoFullNameFromURL(githubURL string) (string, error) {
 func getRulesetFiles(dir string) ([]string, error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Failed to read directory %s", dir)
+		return nil, errors.Wrapf(err, "Failed to read from directory %s", dir)
 	}
 
 	var ruleSetFiles []string
