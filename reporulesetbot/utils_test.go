@@ -69,8 +69,14 @@ func TestGetRepoFullNameFromURL(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "invalid URL",
-			githubURL:   "://github.com/owner/repo",
+			name:        "invalid URL scheme",
+			githubURL:   "ftp://github.com/owner/repo",
+			expected:    "",
+			expectError: true,
+		},
+		{
+			name:        "invalid URL host",
+			githubURL:   "https://example.com/owner/repo",
 			expected:    "",
 			expectError: true,
 		},
@@ -81,9 +87,15 @@ func TestGetRepoFullNameFromURL(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "non-GitHub URL",
-			githubURL:   "https://example.com/owner/repo",
-			expected:    "owner/repo",
+			name:        "URL with extra segments",
+			githubURL:   "https://github.com/owner/repo/extra",
+			expected:    "",
+			expectError: true,
+		},
+		{
+			name:        "invalid URL",
+			githubURL:   "://github.com/owner/repo",
+			expected:    "",
 			expectError: true,
 		},
 	}
@@ -93,6 +105,7 @@ func TestGetRepoFullNameFromURL(t *testing.T) {
 			result, err := getRepoFullNameFromURL(tt.githubURL)
 			if tt.expectError {
 				assert.Error(t, err)
+				assert.Empty(t, result)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)

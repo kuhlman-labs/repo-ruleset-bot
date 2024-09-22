@@ -172,19 +172,19 @@ func getRepoFullNameFromURL(githubURL string) (string, error) {
 
 	// Ensure the URL scheme is either http or https
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return "", errors.Wrapf(err, "Invalid URL scheme: %s", parsedURL.Scheme)
+		return "", errors.New("Invalid URL scheme")
 	}
 
 	// Ensure the URL host is github.com
 	if parsedURL.Host != "github.com" {
-		return "", errors.Wrapf(err, "Invalid URL host: %s", parsedURL.Host)
+		return "", errors.New("Invalid URL host")
 	}
 
 	// The path should be in the format "/owner/repo"
 	path := strings.Trim(parsedURL.Path, "/")
 	segments := strings.Split(path, "/")
 	if len(segments) != 2 {
-		return "", errors.Wrapf(err, "Invalid URL path: %s", path)
+		return "", errors.New("Invalid URL path")
 	}
 
 	return path, nil
