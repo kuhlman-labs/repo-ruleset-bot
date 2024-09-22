@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/google/go-github/v63/github"
+	"github.com/google/go-github/v65/github"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 )
@@ -36,13 +36,13 @@ type Workflow struct {
 func (h *RulesetHandler) getRulesets(ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) ([]*github.Ruleset, error) {
 	var rulesets []*github.Ruleset
 
-	filenames, err := getRuleSetFiles()
+	files, err := getRuleSetFiles()
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get ruleset files")
 	}
 
-	for _, filename := range filenames {
-		ruleset, err := h.processRulesetFile(filename, ctx, client, orgName, logger)
+	for _, file := range files {
+		ruleset, err := h.processRulesetFile(file, ctx, client, orgName, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -52,18 +52,18 @@ func (h *RulesetHandler) getRulesets(ctx context.Context, client *github.Client,
 }
 
 // processRulesetFile processes the ruleset from a given JSON file.
-func (h *RulesetHandler) processRulesetFile(filename string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
-	logger.Info().Msgf("Processing ruleset file %s...", filename)
+func (h *RulesetHandler) processRulesetFile(file string, ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) (*github.Ruleset, error) {
+	logger.Info().Msgf("Processing ruleset file %s...", file)
 
-	jsonData, err := os.ReadFile(filename)
+	jsonData, err := os.ReadFile(file)
 	if err != nil {
-		logger.Error().Err(err).Msgf("Failed to read ruleset file %s.", filename)
+		logger.Error().Err(err).Msgf("Failed to read ruleset file %s.", file)
 		return nil, errors.Wrap(err, "Failed to read ruleset file")
 	}
 
 	var ruleset *github.Ruleset
 	if err := json.Unmarshal(jsonData, &ruleset); err != nil {
-		logger.Error().Err(err).Msgf("Failed to unmarshal ruleset file %s.", filename)
+		logger.Error().Err(err).Msgf("Failed to unmarshal ruleset file %s.", file)
 		return nil, errors.Wrap(err, "Failed to unmarshal ruleset file")
 	}
 
@@ -71,7 +71,7 @@ func (h *RulesetHandler) processRulesetFile(filename string, ctx context.Context
 		return nil, err
 	}
 
-	logger.Info().Msgf("Processed ruleset file %s.", filename)
+	logger.Info().Msgf("Processed ruleset file %s.", file)
 
 	return ruleset, nil
 }
@@ -107,12 +107,6 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 		}
 	}
 	return nil
-}
-
-// shouldProcessBypassActor returns true if the bypass actor should be processed.
-func shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
-	actorID := bypassActor.GetActorID()
-	return actorID != 0 && actorID > 5
 }
 
 // processWorkflows processes the workflows in a repository rule.
@@ -261,6 +255,13 @@ func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *githu
 	return nil
 }
 
+// shouldProcessBypassActor returns true if the bypass actor should be processed.
+func shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
+	actorID := bypassActor.GetActorID()
+	return actorID != 0 && actorID > 5
+}
+
+// isManagedRuleset returns true if the ruleset is managed by this App.
 func isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
 	if ruleset.Name != event.Ruleset.Name {
 		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by this App.", event.Ruleset.Name, event.Organization.GetLogin())
