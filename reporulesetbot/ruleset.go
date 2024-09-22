@@ -36,7 +36,7 @@ type Workflow struct {
 func (h *RulesetHandler) getRulesets(ctx context.Context, client *github.Client, orgName string, logger zerolog.Logger) ([]*github.Ruleset, error) {
 	var rulesets []*github.Ruleset
 
-	files, err := getRuleSetFiles()
+	files, err := getRulesetFiles("rulesets")
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get ruleset files")
 	}
@@ -44,7 +44,7 @@ func (h *RulesetHandler) getRulesets(ctx context.Context, client *github.Client,
 	for _, file := range files {
 		ruleset, err := h.processRulesetFile(file, ctx, client, orgName, logger)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "Failed to process ruleset file %s", file)
 		}
 		rulesets = append(rulesets, ruleset)
 	}
@@ -119,7 +119,7 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 
 	for i, workflow := range workflows.Workflows {
 		if err := updateWorkflowRepoID(ctx, &workflow, client, orgName, logger); err != nil {
-			return err
+			return errors.Wrapf(err, "Failed to update repository ID for workflow %s in ruleset file: %s", workflow.Path, orgName)
 		}
 		workflows.Workflows[i] = workflow
 	}
@@ -155,44 +155,38 @@ func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *githu
 // processTeamActor processes a team actor.
 func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
 
-	// create jwt client
 	jwtclient, err := newJWTClient()
 	if err != nil {
 		return errors.Wrap(err, "Failed to create JWT client")
 	}
 
-	// get installation for the app
 	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
 	if err != nil {
-		return errors.Wrap(err, "Failed to get installation for the app")
+		return errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
 	}
 
-	// create installation client
 	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
 	if err != nil {
-		return errors.Wrap(err, "Failed to create installation client")
+		return errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
 	}
 
-	// get org ID
 	orgID, err := getOrgID(ctx, sourceClient, sourceOrgName)
 	if err != nil {
-		return errors.Wrap(err, "Failed to get org ID")
+		return errors.Wrapf(err, "Failed to get org ID for the org %s", sourceOrgName)
 	}
 
 	teamID := actor.GetActorID()
 
 	sourceTeam, err := getTeamByID(ctx, sourceClient, orgID, teamID)
 	if err != nil {
-		errors.Wrapf(err, "Failed to get team with ID %d", teamID)
-		return err
+		return errors.Wrapf(err, "Failed to get team with ID %d", teamID)
 	}
 
 	teamName := sourceTeam.GetSlug()
 
 	newTeam, err := getTeamByName(ctx, client, orgName, teamName)
 	if err != nil {
-		errors.Wrapf(err, "Failed to get team with name %s", teamName)
-		return err
+		return errors.Wrapf(err, "Failed to get team with name %s", teamName)
 	}
 
 	teamID = newTeam.GetID()
@@ -206,28 +200,24 @@ func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Cl
 func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
 	actorID := actor.GetActorID()
 
-	// create jwt client
 	jwtclient, err := newJWTClient()
 	if err != nil {
 		return errors.Wrap(err, "Failed to create JWT client")
 	}
 
-	// get installation for the app
 	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
 	if err != nil {
-		return errors.Wrap(err, "Failed to get installation for the app")
+		return errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
 	}
 
-	// create installation client
 	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
 	if err != nil {
-		return errors.Wrap(err, "Failed to create installation client")
+		return errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
 	}
 
-	// get custom repo roles for the source org
 	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, sourceClient, sourceOrgName)
 	if err != nil {
-		return errors.Wrap(err, "Failed to get custom repo roles for source org")
+		return errors.Wrapf(err, "Failed to get custom repo roles for org %s", sourceOrgName)
 	}
 
 	var roleName string
@@ -238,10 +228,9 @@ func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *githu
 		}
 	}
 
-	// get custom repo roles for the target org
 	customRepoRoles, err = getCustomRepoRolesForOrg(ctx, client, orgName)
 	if err != nil {
-		return errors.Wrap(err, "Failed to get custom repo roles for target org")
+		return errors.Wrapf(err, "Failed to get custom repo roles for org %s", orgName)
 	}
 
 	for _, repoRole := range customRepoRoles.CustomRepoRoles {
