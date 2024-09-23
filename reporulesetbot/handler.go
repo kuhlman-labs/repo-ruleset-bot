@@ -157,14 +157,13 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 	}
 
 	for _, ruleset := range rulesets {
-		if ruleset.Name != eventRulesetName {
+
+		if !isManagedRuleset(event, ruleset, logger) {
 			continue
 		}
-		if !isManagedRuleset(event, ruleset, logger) {
-			return nil
-		}
+
 		if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
-			return err
+			return errors.Wrapf(err, "Failed to edit ruleset %s in organization %s", eventRulesetName, orgName)
 		}
 	}
 	return nil
@@ -198,7 +197,7 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 			logger.Info().Msgf("Recreating ruleset %s in organization %s.", rulesetName, orgName)
 
 			if err := createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
-				return err
+				return errors.Wrapf(err, "Failed to create ruleset %s in organization %s", rulesetName, orgName)
 			}
 			break
 		}

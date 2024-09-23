@@ -252,6 +252,12 @@ func shouldProcessBypassActor(bypassActor *github.BypassActor) bool {
 
 // isManagedRuleset returns true if the ruleset is managed by this App.
 func isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerolog.Logger) bool {
+
+	if event.Changes.Name.From != "" && ruleset.Name == event.Changes.Name.From {
+		logger.Info().Msgf("Ruleset name was changed from %s to %s in the organization %s.", event.Changes.Name.From, event.Ruleset.Name, event.Organization.GetLogin())
+		return ruleset.Name == event.Changes.Name.From
+	}
+
 	if ruleset.Name != event.Ruleset.Name {
 		logger.Info().Msgf("Ruleset %s in the organization %s is not managed by this App.", event.Ruleset.Name, event.Organization.GetLogin())
 		return false
