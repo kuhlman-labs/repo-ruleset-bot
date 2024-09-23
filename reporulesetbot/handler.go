@@ -190,10 +190,6 @@ func (h *RulesetHandler) handleRulesetDeleted(ctx context.Context, event *Rulese
 
 			rulesetName := ruleset.Name
 
-			if !isManagedRuleset(event, ruleset, logger) {
-				return nil
-			}
-
 			logger.Info().Msgf("Recreating ruleset %s in organization %s.", rulesetName, orgName)
 
 			if err := createRuleset(ctx, client, orgName, ruleset, logger); err != nil {
