@@ -162,6 +162,13 @@ func (h *RulesetHandler) handleRulesetEdited(ctx context.Context, event *Ruleset
 			continue
 		}
 
+		if len(ruleset.BypassActors) == 0 {
+			logger.Info().Msgf("Ruleset %s in the organization %s does not have any bypass actors.", ruleset.Name, orgName)
+			if err := removeBypassActors(client, orgName, rulesetID); err != nil {
+				return errors.Wrapf(err, "Failed to remove bypass actors from ruleset %s in organization %s", eventRulesetName, orgName)
+			}
+		}
+
 		if err := editRuleset(ctx, client, orgName, rulesetID, ruleset, logger); err != nil {
 			return errors.Wrapf(err, "Failed to edit ruleset %s in organization %s", eventRulesetName, orgName)
 		}

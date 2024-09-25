@@ -1,7 +1,10 @@
 package reporulesetbot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -205,4 +208,30 @@ func getRulesetFiles(dir string) ([]string, error) {
 	}
 
 	return ruleSetFiles, nil
+}
+
+// removeBypassActors edits the ruleset to remove the bypass actors.
+func removeBypassActors(client *github.Client, orgName string, rulesetID int64) error {
+
+	payload := map[string]interface{}{
+		"bypass_actors": []interface{}{},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return errors.Wrap(err, "Failed to marshal JSON payload")
+	}
+
+	body := bytes.NewReader(data)
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("https://api.github.com/orgs/%s/rulesets/%d", orgName, rulesetID), body)
+	if err != nil {
+		return errors.Wrap(err, "Failed to create new request")
+	}
+	_, err = client.BareDo(context.Background(), req)
+	if err != nil {
+		return errors.Wrap(err, "Failed to remove bypass actors")
+	}
+
+	return nil
 }
