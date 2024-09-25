@@ -68,7 +68,7 @@ func (h *RulesetHandler) processRulesetFile(file string, ctx context.Context, cl
 	}
 
 	if err := h.processRuleset(ctx, ruleset, client, orgName, logger); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "Failed to process ruleset file %s", file)
 	}
 
 	logger.Info().Msgf("Processed ruleset file %s.", file)
@@ -82,7 +82,7 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "workflows" {
-			if err := processWorkflows(ctx, rule, client, orgName, logger); err != nil {
+			if err := h.processWorkflows(ctx, rule, client, sourceOrgName, orgName, logger); err != nil {
 				return errors.Wrapf(err, "Failed to process workflows in ruleset file: %s", ruleset.Name)
 			}
 		}
@@ -92,11 +92,11 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 		if shouldProcessBypassActor(bypassActor) {
 			switch bypassActor.GetActorType() {
 			case "Team":
-				if err := h.processTeamActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
+				if err := h.processTeamActor(ctx, client, bypassActor, sourceOrgName, orgName, logger); err != nil {
 					return errors.Wrapf(err, "Failed to process team bypass actor with id %d in ruleset file: %s", bypassActor.GetActorID(), ruleset.Name)
 				}
 			case "RepositoryRole":
-				if err := h.processRepoRoleActor(ctx, client, bypassActor, sourceOrgName, orgName); err != nil {
+				if err := h.processRepoRoleActor(ctx, client, bypassActor, sourceOrgName, orgName, logger); err != nil {
 					return errors.Wrapf(err, "Failed to process repository role bypass actor with id %d in ruleset file: %s", bypassActor.GetActorID(), ruleset.Name)
 				}
 			case "Integration":
@@ -110,7 +110,7 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 }
 
 // processWorkflows processes the workflows in a repository rule.
-func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *github.Client, orgName string, logger zerolog.Logger) error {
+func (h *RulesetHandler) processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *github.Client, sourceOrgName, orgName string, logger zerolog.Logger) error {
 	var workflows Workflows
 	if err := json.Unmarshal(*rule.Parameters, &workflows); err != nil {
 		logger.Error().Err(err).Msg("Failed to unmarshal workflow parameters.")
@@ -118,7 +118,7 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 	}
 
 	for i, workflow := range workflows.Workflows {
-		if err := updateWorkflowRepoID(ctx, &workflow, client, orgName, logger); err != nil {
+		if err := h.updateWorkflowRepoID(ctx, &workflow, client, sourceOrgName, orgName, logger); err != nil {
 			return errors.Wrapf(err, "Failed to update repository ID for workflow %s in ruleset file: %s", workflow.Path, orgName)
 		}
 		workflows.Workflows[i] = workflow
@@ -135,8 +135,13 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 }
 
 // updateWorkflowRepoID updates the repository ID in a workflow.
-func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, orgName string, logger zerolog.Logger) error {
-	repoName, err := getRepoName(ctx, client, workflow.RepositoryID)
+func (h *RulesetHandler) updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, sourceOrgName, orgName string, logger zerolog.Logger) error {
+	sourceClient, err := h.getSourceClient(ctx, sourceOrgName, logger)
+	if err != nil {
+		return err
+	}
+
+	repoName, err := getRepoName(ctx, sourceClient, workflow.RepositoryID)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get repository name")
 		return errors.Wrapf(err, "Failed to get repository name for repository ID %d", workflow.RepositoryID)
@@ -153,21 +158,11 @@ func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *githu
 }
 
 // processTeamActor processes a team actor.
-func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
+func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string, logger zerolog.Logger) error {
 
-	jwtclient, err := newJWTClient()
+	sourceClient, err := h.getSourceClient(ctx, sourceOrgName, logger)
 	if err != nil {
-		return errors.Wrap(err, "Failed to create JWT client")
-	}
-
-	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
-	if err != nil {
-		return errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
-	}
-
-	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
-	if err != nil {
-		return errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
+		return err
 	}
 
 	orgID, err := getOrgID(ctx, sourceClient, sourceOrgName)
@@ -197,22 +192,12 @@ func (h *RulesetHandler) processTeamActor(ctx context.Context, client *github.Cl
 }
 
 // processRepoRoleActor processes a repository role actor.
-func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string) error {
+func (h *RulesetHandler) processRepoRoleActor(ctx context.Context, client *github.Client, actor *github.BypassActor, sourceOrgName, orgName string, logger zerolog.Logger) error {
 	actorID := actor.GetActorID()
 
-	jwtclient, err := newJWTClient()
+	sourceClient, err := h.getSourceClient(ctx, sourceOrgName, logger)
 	if err != nil {
-		return errors.Wrap(err, "Failed to create JWT client")
-	}
-
-	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
-	if err != nil {
-		return errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
-	}
-
-	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
-	if err != nil {
-		return errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
+		return err
 	}
 
 	customRepoRoles, err := getCustomRepoRolesForOrg(ctx, sourceClient, sourceOrgName)
@@ -264,4 +249,27 @@ func isManagedRuleset(event *RulesetEvent, ruleset *github.Ruleset, logger zerol
 	}
 	logger.Info().Msgf("Ruleset %s in the organization %s is managed by this App.", event.Ruleset.Name, event.Organization.GetLogin())
 	return true
+}
+
+// getSourceClient creates a new installation client for the source organization.
+func (h *RulesetHandler) getSourceClient(ctx context.Context, sourceOrgName string, logger zerolog.Logger) (*github.Client, error) {
+	jwtclient, err := newJWTClient()
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to create JWT client")
+		return nil, errors.Wrap(err, "Failed to create JWT client")
+	}
+
+	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to get installation ID.")
+		return nil, errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
+	}
+
+	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to create installation client.")
+		return nil, errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
+	}
+
+	return sourceClient, nil
 }
