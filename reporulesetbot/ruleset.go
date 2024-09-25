@@ -82,7 +82,7 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "workflows" {
-			if err := processWorkflows(ctx, rule, client, orgName, logger); err != nil {
+			if err := h.processWorkflows(ctx, rule, client, sourceOrgName, orgName, logger); err != nil {
 				return errors.Wrapf(err, "Failed to process workflows in ruleset file: %s", ruleset.Name)
 			}
 		}
@@ -110,7 +110,7 @@ func (h *RulesetHandler) processRuleset(ctx context.Context, ruleset *github.Rul
 }
 
 // processWorkflows processes the workflows in a repository rule.
-func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *github.Client, orgName string, logger zerolog.Logger) error {
+func (h *RulesetHandler) processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *github.Client, sourceOrgName, orgName string, logger zerolog.Logger) error {
 	var workflows Workflows
 	if err := json.Unmarshal(*rule.Parameters, &workflows); err != nil {
 		logger.Error().Err(err).Msg("Failed to unmarshal workflow parameters.")
@@ -118,7 +118,7 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 	}
 
 	for i, workflow := range workflows.Workflows {
-		if err := updateWorkflowRepoID(ctx, &workflow, client, orgName, logger); err != nil {
+		if err := h.updateWorkflowRepoID(ctx, &workflow, client, sourceOrgName, orgName, logger); err != nil {
 			return errors.Wrapf(err, "Failed to update repository ID for workflow %s in ruleset file: %s", workflow.Path, orgName)
 		}
 		workflows.Workflows[i] = workflow
@@ -135,8 +135,23 @@ func processWorkflows(ctx context.Context, rule *github.RepositoryRule, client *
 }
 
 // updateWorkflowRepoID updates the repository ID in a workflow.
-func updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, orgName string, logger zerolog.Logger) error {
-	repoName, err := getRepoName(ctx, client, workflow.RepositoryID)
+func (h *RulesetHandler) updateWorkflowRepoID(ctx context.Context, workflow *Workflow, client *github.Client, sourceOrgName, orgName string, logger zerolog.Logger) error {
+	jwtclient, err := newJWTClient()
+	if err != nil {
+		return errors.Wrap(err, "Failed to create JWT client")
+	}
+
+	installation, err := getOrgAppInstallationID(ctx, jwtclient, sourceOrgName)
+	if err != nil {
+		return errors.Wrapf(err, "Failed to get installation ID for the org %s", sourceOrgName)
+	}
+
+	sourceClient, err := h.ClientCreator.NewInstallationClient(installation)
+	if err != nil {
+		return errors.Wrapf(err, "Failed to create installation client for ID %d", installation)
+	}
+
+	repoName, err := getRepoName(ctx, sourceClient, workflow.RepositoryID)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to get repository name")
 		return errors.Wrapf(err, "Failed to get repository name for repository ID %d", workflow.RepositoryID)
