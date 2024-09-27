@@ -1,7 +1,7 @@
 # Repo Ruleset Bot
 
 ## Overview
-The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets are consistent with the predefined ruleset configuration. The bot will enforce the ruleset configuration by reverting any changes made to the ruleset that aren't sent by the app, ensuring that the ruleset is always in the desired state.
+The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets for organizations. It listens to specific GitHub events and ensures that the repository rulesets in all target organizations are consistent with the predefined ruleset configuration. The bot will enforce the ruleset configuration by reverting any changes made to the ruleset that aren't sent by the app, ensuring that the ruleset is always in the desired state.
 
 ## Creating the GitHub App
 
@@ -27,6 +27,8 @@ The **Repo Ruleset Bot** is a GitHub App designed to manage repository rulesets 
    - **Subscribe to Events**:
      - Subscribe to the "Repository ruleset" event.
      - Subscribe to the "Release" event.
+   - **Where can this GitHub App be installed?**
+     - If the app will be installed in more than one organization, be sure to select "Any account".
    - **Save**: Click "Create GitHub App".
 
 3. **Generate Private Key**:
@@ -83,6 +85,9 @@ github:
 1. **Clone the Repository**:
    - Clone or Fork the Repository to a GitHub Organization where you have Admin access.
    - Clone the repository to your local machine or the machine which will host the app:
+     ```sh
+     git clone https://github.com/<YOUR_ORG>/repo-ruleset-bot.git
+     ```
 
 1. **Install Dependencies**:
    - Ensure you have Go installed on the machine.
@@ -115,7 +120,7 @@ Once the App is set up and running, it will listen for the ruleset events and de
 - **Revert Changes**:
   - If a user modifies the ruleset the app will revert the changes.
 - **Updating the Ruleset**:
-  - To update to a new version of the ruleset, you can update the JSON file and create a new release in the repository. This will trigger an update to the ruleset in the Organizations where the app is installed.
+  - To update to a new version of the ruleset, you can update the JSON file and [create a new release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository#creating-a-release) in the repository. This will trigger an update to the ruleset in the Organizations where the app is installed.
 
 ## Contributing
 
