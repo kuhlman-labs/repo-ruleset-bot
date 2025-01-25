@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/kuhlman-labs/repo-ruleset-bot)](https://goreportcard.com/report/github.com/kuhlman-labs/repo-ruleset-bot)
+
 # Repo Ruleset Bot
 
 ## Overview
