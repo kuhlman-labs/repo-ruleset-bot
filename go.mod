@@ -1,7 +1,7 @@
 module github.com/kuhlman-labs/repo-ruleset-bot
 
 go 1.22.5
-toolchain go1.23.2
+toolchain go1.24.1
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.13.0
@@ -10,7 +10,7 @@ require (
 	github.com/palantir/go-githubapp v0.33.0
 	github.com/pkg/errors v0.9.1
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
-	github.com/rs/zerolog v1.33.0
+	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.9.0
 	gopkg.in/yaml.v2 v2.4.0
 )
